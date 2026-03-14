@@ -1,10 +1,11 @@
 """SQLite query helpers."""
 import sqlite3
+import json
 from contextlib import contextmanager
 from typing import Generator
+from shapely.geometry import Point, shape
 
 DB_PATH = "data/gis_database.db"
-
 
 @contextmanager
 def get_connection(db_path: str = DB_PATH) -> Generator[sqlite3.Connection, None, None]:
@@ -15,63 +16,77 @@ def get_connection(db_path: str = DB_PATH) -> Generator[sqlite3.Connection, None
     finally:
         conn.close()
 
-
 def init_db(db_path: str = DB_PATH) -> None:
-    """Create the parcels table if it does not exist."""
-    with get_connection(db_path) as conn:
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS parcels (
-                id            INTEGER PRIMARY KEY AUTOINCREMENT,
-                parcel_id     TEXT,
-                owner         TEXT,
-                address       TEXT,
-                land_use      TEXT,
-                zoning        TEXT,
-                area_sqft     REAL,
-                area_acres    REAL,
-                subtype       TEXT,
-                geometry_json TEXT,
-                min_x         REAL,
-                min_y         REAL,
-                max_x         REAL,
-                max_y         REAL
-            )
-        """)
-        conn.commit()
-
+    pass
 
 def query_all_parcels(db_path: str = DB_PATH) -> list[dict]:
     with get_connection(db_path) as conn:
         rows = conn.execute("SELECT * FROM parcels").fetchall()
         return [dict(row) for row in rows]
 
-
-def query_parcels_in_bbox(
-    min_x: float, min_y: float, max_x: float, max_y: float, db_path: str = DB_PATH
+def get_parcels(
+    details_landuse: str | None = None,
+    main_landuse: str | None = None,
+    parcel_status: str | None = None,
+    block_id: str | None = None,
+    db_path: str = DB_PATH
 ) -> list[dict]:
+    with get_connection(db_path) as conn:
+        query = "SELECT * FROM parcels WHERE 1=1"
+        params = []
+        if details_landuse is not None:
+            query += " AND DETAILSLANDUSE = ?"
+            params.append(details_landuse)
+        if main_landuse is not None:
+            query += " AND MAINLANDUSE = ?"
+            params.append(main_landuse)
+        if parcel_status is not None:
+            query += " AND PARCELSTATUS = ?"
+            params.append(parcel_status)
+        if block_id is not None:
+            query += " AND BLOCK_ID = ?"
+            params.append(block_id)
+        
+        rows = conn.execute(query, params).fetchall()
+        return [dict(row) for row in rows]
+
+def get_block_summary(block_id: str | None = None, db_path: str = DB_PATH) -> list[dict]:
+    with get_connection(db_path) as conn:
+        if block_id:
+            rows = conn.execute("SELECT * FROM block_summary WHERE BLOCK_ID = ?", (block_id,)).fetchall()
+        else:
+            rows = conn.execute("SELECT * FROM block_summary").fetchall()
+        return [dict(row) for row in rows]
+
+def get_parcels_in_bbox(min_x: float, min_y: float, max_x: float, max_y: float, db_path: str = DB_PATH) -> list[dict]:
     with get_connection(db_path) as conn:
         rows = conn.execute(
             """
             SELECT * FROM parcels
-            WHERE max_x >= ? AND min_x <= ?
-              AND max_y >= ? AND min_y <= ?
+            WHERE CENTROID_X >= ? AND CENTROID_X <= ?
+              AND CENTROID_Y >= ? AND CENTROID_Y <= ?
             """,
             (min_x, max_x, min_y, max_y),
         ).fetchall()
         return [dict(row) for row in rows]
 
+def query_parcels_in_bbox(min_x: float, min_y: float, max_x: float, max_y: float, db_path: str = DB_PATH) -> list[dict]:
+    return get_parcels_in_bbox(min_x, min_y, max_x, max_y, db_path)
 
-def query_parcel_stats(db_path: str = DB_PATH) -> dict:
+def get_parcels_in_polygon(polygon_geojson: dict, db_path: str = DB_PATH) -> list[dict]:
+    poly = shape(polygon_geojson)
+    min_x, min_y, max_x, max_y = poly.bounds
+    
+    candidates = get_parcels_in_bbox(min_x, min_y, max_x, max_y, db_path)
+    results = []
+    for c in candidates:
+        if "CENTROID_X" in c and "CENTROID_Y" in c and c["CENTROID_X"] is not None and c["CENTROID_Y"] is not None:
+            pt = Point(c["CENTROID_X"], c["CENTROID_Y"])
+            if poly.contains(pt):
+                results.append(c)
+    return results
+
+def get_all_blocks(db_path: str = DB_PATH) -> list[str]:
     with get_connection(db_path) as conn:
-        row = conn.execute(
-            """
-            SELECT
-                COUNT(*)       AS total_parcels,
-                SUM(area_acres)  AS total_area_acres,
-                AVG(area_acres)  AS avg_area_acres,
-                MIN(area_acres)  AS min_area_acres,
-                MAX(area_acres)  AS max_area_acres
-            FROM parcels
-            """
-        ).fetchone()
-        return dict(row) if row else {}
+        rows = conn.execute("SELECT DISTINCT BLOCK_ID FROM parcels WHERE BLOCK_ID IS NOT NULL ORDER BY BLOCK_ID").fetchall()
+        return [row["BLOCK_ID"] for row in rows]

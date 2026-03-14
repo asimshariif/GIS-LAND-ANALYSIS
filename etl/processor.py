@@ -192,6 +192,22 @@ def process_data():
     print("[ETL] parcels")
     block_summary.to_sql("block_summary", conn, if_exists="replace", index=False)
     print("[ETL] block_summary")
+    
+    # Process extra layers dynamically
+    for layer in layers:
+        layer_name_clean = layer[0]
+        if layer_name_clean != layer_name:
+            try:
+                extra_df = gpd.read_file(GDB_PATH, layer=layer_name_clean)
+                extra_df = pd.DataFrame(extra_df.drop(columns=["geometry"], errors="ignore"))
+                for col in extra_df.select_dtypes(include=['object', 'string', 'str']):
+                    extra_df[col] = extra_df[col].astype(str)
+                table_name = layer_name_clean.lower()
+                extra_df.to_sql(table_name, conn, if_exists="replace", index=False)
+                print(f"[ETL] {table_name}")
+            except Exception as e:
+                pass # Usually skips silently if layer reading fails
+
     conn.close()
     
     print(f"[ETL] Done. Database -> {DB_PATH}")
