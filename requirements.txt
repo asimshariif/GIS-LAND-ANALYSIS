@@ -1,0 +1,12 @@
+fastapi
+uvicorn[standard]
+pandas
+openpyxl
+python-dotenv
+google-generativeai
+openai
+reportlab
+pytest
+httpx
+pyogrio
+geopandas
