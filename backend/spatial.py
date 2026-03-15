@@ -1,7 +1,7 @@
 """Spatial and bounding box analysis helpers."""
 from backend.database import get_parcels_in_bbox, get_parcels_in_polygon
 
-def build_summary_stats(parcels: list[dict]) -> dict:
+def build_summary_stats(parcels: list[dict], shop_size_m2: float = 120.0) -> dict:
     if not parcels:
         return {
             "total_parcels": 0,
@@ -13,7 +13,8 @@ def build_summary_stats(parcels: list[dict]) -> dict:
             "total_mosque_capacity": 0,
             "total_shops": 0,
             "subtypes": [],
-            "overlapping_block_ids": []
+            "overlapping_block_ids": [],
+            "shop_size_m2": shop_size_m2
         }
         
     total_area_m2 = 0.0
@@ -27,8 +28,8 @@ def build_summary_stats(parcels: list[dict]) -> dict:
     block_ids = set()
     
     for p in parcels:
-        area = p.get("AREA_M2") or 0.0
-        total_area_m2 += float(area)
+        area = float(p.get("AREA_M2") or 0.0)
+        total_area_m2 += area
         
         luc = p.get("LANDUSE_CATEGORY") or "Unknown"
         landuse_cat_counts[luc] = landuse_cat_counts.get(luc, 0) + 1
@@ -45,8 +46,17 @@ def build_summary_stats(parcels: list[dict]) -> dict:
         if luc == "Mosque":
             total_mosque_capacity += int(p.get("CAPACITY_ESTIMATED") or 0)
             
-        total_shops += int(p.get("SHOPS_ESTIMATED") or 0)
-        
+        # Calculate shops dynamically based on shop_size_m2 parameter
+        try:
+            comm_units = float(p.get("COMMERCIALUNITS") or 0)
+        except (ValueError, TypeError):
+            comm_units = 0.0
+            
+        if comm_units > 0:
+            total_shops += int(comm_units)
+        elif luc == "Commercial":
+            total_shops += int(area / shop_size_m2) if shop_size_m2 > 0 else 0
+            
         subtype = p.get("SUBTYPE_LABEL_EN")
         if subtype and subtype != "Unknown":
             subtypes.add(subtype)
@@ -65,16 +75,17 @@ def build_summary_stats(parcels: list[dict]) -> dict:
         "total_mosque_capacity": total_mosque_capacity,
         "total_shops": total_shops,
         "subtypes": sorted(list(subtypes)),
-        "overlapping_block_ids": sorted(list(block_ids))
+        "overlapping_block_ids": sorted(list(block_ids)),
+        "shop_size_m2": shop_size_m2
     }
 
-def analyze_bbox(min_x: float, min_y: float, max_x: float, max_y: float) -> dict:
+def analyze_bbox(min_x: float, min_y: float, max_x: float, max_y: float, shop_size_m2: float = 120.0) -> dict:
     parcels = get_parcels_in_bbox(min_x, min_y, max_x, max_y)
-    return build_summary_stats(parcels)
+    return build_summary_stats(parcels, shop_size_m2)
 
-def analyze_polygon(polygon_geojson: dict) -> dict:
+def analyze_polygon(polygon_geojson: dict, shop_size_m2: float = 120.0) -> dict:
     parcels = get_parcels_in_polygon(polygon_geojson)
-    return build_summary_stats(parcels)
+    return build_summary_stats(parcels, shop_size_m2)
 
-def analyze_parcel_set(parcels: list[dict]) -> dict:
-    return build_summary_stats(parcels)
+def analyze_parcel_set(parcels: list[dict], shop_size_m2: float = 120.0) -> dict:
+    return build_summary_stats(parcels, shop_size_m2)
