@@ -1,13 +1,46 @@
+"""FastAPI backend for GIS Land Analysis."""
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from backend.models import (
-    BBoxRequest, PolygonRequest, ParcelListRequest, AnalysisResponse,
-    ReportRequest, ReportResponse
-)
-from backend.spatial import analyze_bbox, analyze_polygon, analyze_parcel_set
-from backend.llm_service import analyze_parcels
+from fastapi.responses import StreamingResponse
+import io
 
-app = FastAPI(title="GIS Land Analysis API")
+from backend.models import (
+    # New models
+    PolygonSelectRequest,
+    BBoxSelectRequest,
+    CategoryQueryRequest,
+    MosqueCapacityRequest,
+    CommercialCapacityRequest,
+    ReportRequest,
+    ReportResponse,
+    # Legacy models
+    BBoxRequest,
+    PolygonRequest,
+    ParcelListRequest,
+    AnalysisResponse,
+    TextReportRequest,
+)
+from backend.database import (
+    get_all_parcels_lightweight,
+    get_parcels_by_objectids,
+    get_all_blocks,
+    get_block_summary,
+)
+from backend.spatial import (
+    select_parcels_in_polygon,
+    select_parcels_in_bbox,
+    query_parcels_in_selection,
+    calculate_mosque_capacity,
+    calculate_commercial_capacity,
+    # Legacy functions
+    analyze_bbox,
+    analyze_polygon,
+    analyze_parcel_set,
+)
+from backend.llm_service import generate_selection_report
+from backend.report_gen import generate_pdf_report
+
+app = FastAPI(title="GIS Land Analysis API", version="2.0.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -17,13 +50,202 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+# =============================================================================
+# Health Check
+# =============================================================================
+
+
+@app.get("/health")
+def health_check():
+    """Health check endpoint."""
+    return {"status": "healthy", "version": "2.0.0"}
+
+
 @app.get("/")
 def read_root():
-    return {"message": "Welcome to GIS Land Analysis API"}
+    """Root endpoint."""
+    return {"message": "GIS Land Analysis API", "version": "2.0.0"}
+
+
+# =============================================================================
+# Parcels & Blocks Endpoints
+# =============================================================================
+
+
+@app.get("/parcels/lightweight")
+def get_parcels_lightweight():
+    """Get all parcels with marker-only columns for map rendering."""
+    try:
+        parcels = get_all_parcels_lightweight()
+        return {"parcels": parcels, "count": len(parcels)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/parcels/{object_id}")
+def get_parcel_detail(object_id: int):
+    """Get full detail for one parcel."""
+    try:
+        parcels = get_parcels_by_objectids([object_id])
+        if not parcels:
+            raise HTTPException(status_code=404, detail=f"Parcel {object_id} not found")
+        return {"parcel": parcels[0]}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/blocks")
+def get_blocks():
+    """Get all block IDs."""
+    try:
+        blocks = get_all_blocks()
+        return {"blocks": blocks, "count": len(blocks)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/analysis/block/{block_id}")
+def get_block_analysis(block_id: str):
+    """Get stats for one block."""
+    try:
+        summary = get_block_summary(block_id)
+        if not summary:
+            raise HTTPException(status_code=404, detail=f"Block {block_id} not found")
+        return {"block": summary[0]}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# =============================================================================
+# Selection Endpoints
+# =============================================================================
+
+
+@app.post("/selection/polygon")
+def select_polygon(req: PolygonSelectRequest):
+    """Select parcels within a polygon, returns summary + objectids."""
+    try:
+        result = select_parcels_in_polygon(req.coordinates)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/selection/bbox")
+def select_bbox(req: BBoxSelectRequest):
+    """Select parcels within a bounding box, returns summary + objectids."""
+    try:
+        result = select_parcels_in_bbox(
+            req.min_lat, req.max_lat, req.min_lon, req.max_lon
+        )
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# =============================================================================
+# Query Endpoint
+# =============================================================================
+
+
+@app.post("/query/category")
+def query_category(req: CategoryQueryRequest):
+    """Filter selected objectids by LANDUSE_CATEGORY."""
+    try:
+        parcels = query_parcels_in_selection(req.category, req.selected_objectids)
+        return {"parcels": parcels, "count": len(parcels), "category": req.category}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# =============================================================================
+# Capacity Calculation Endpoints
+# =============================================================================
+
+
+@app.post("/calculate/mosque")
+def calculate_mosque(req: MosqueCapacityRequest):
+    """Calculate mosque capacity for one parcel."""
+    try:
+        result = calculate_mosque_capacity(req.object_id)
+        if "error" in result:
+            raise HTTPException(status_code=404, detail=result["error"])
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/calculate/commercial")
+def calculate_commercial(req: CommercialCapacityRequest):
+    """Calculate commercial capacity with user-supplied shop size."""
+    try:
+        result = calculate_commercial_capacity(req.object_id, req.shop_size_m2)
+        if "error" in result:
+            raise HTTPException(status_code=404, detail=result["error"])
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# =============================================================================
+# Report Endpoints
+# =============================================================================
+
+
+@app.post("/report/text", response_model=ReportResponse)
+def generate_text_report(req: ReportRequest):
+    """Generate LLM report for a selection."""
+    try:
+        report_text = generate_selection_report(
+            selection_summary=req.selection_summary,
+            extra_context=req.extra_context
+        )
+        return ReportResponse(report_text=report_text)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/report/pdf")
+def generate_pdf(req: ReportRequest):
+    """Generate PDF report for a selection."""
+    try:
+        # First generate the text report
+        report_text = generate_selection_report(
+            selection_summary=req.selection_summary,
+            extra_context=req.extra_context
+        )
+        
+        # Then generate PDF
+        pdf_bytes = generate_pdf_report(req.selection_summary, report_text)
+        
+        return StreamingResponse(
+            io.BytesIO(pdf_bytes),
+            media_type="application/pdf",
+            headers={"Content-Disposition": "attachment; filename=land_analysis_report.pdf"}
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# =============================================================================
+# Legacy Endpoints (backward compatibility)
+# =============================================================================
+
 
 @app.post("/analyze/bbox", response_model=AnalysisResponse)
 def api_analyze_bbox(req: BBoxRequest):
+    """Legacy bbox analysis endpoint."""
     try:
+        # Auto-detect coordinate swap if needed
         if not (24 < req.min_lat < 26 and 46 < req.min_lon < 48):
             req.min_lat, req.min_lon = req.min_lon, req.min_lat
             req.max_lat, req.max_lon = req.max_lon, req.max_lat
@@ -35,8 +257,10 @@ def api_analyze_bbox(req: BBoxRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
 @app.post("/analyze/polygon", response_model=AnalysisResponse)
 def api_analyze_polygon(req: PolygonRequest):
+    """Legacy polygon analysis endpoint."""
     try:
         stats = analyze_polygon(
             req.geometry,
@@ -46,22 +270,15 @@ def api_analyze_polygon(req: PolygonRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
 @app.post("/analyze/parcels", response_model=AnalysisResponse)
 def api_analyze_parcels(req: ParcelListRequest):
+    """Legacy parcel list analysis endpoint."""
     try:
-         stats = analyze_parcel_set(
+        stats = analyze_parcel_set(
             req.parcels,
             req.shop_size_m2, req.mosque_space_m2
-         )
-         return AnalysisResponse(**stats)
+        )
+        return AnalysisResponse(**stats)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
-@app.post("/report", response_model=ReportResponse)
-def api_analyze_parcels(req: ReportRequest):
-    try:
-        report_text = analyze_parcels(req.stats)
-        return ReportResponse(report_text=report_text)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-

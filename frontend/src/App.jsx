@@ -1,97 +1,256 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import MapView from './components/MapView';
-import AnalysisPanel from './components/AnalysisPanel';
+import TopBar from './components/TopBar';
+import LeftToolbar from './components/LeftToolbar';
+import BottomPanel from './components/BottomPanel';
+import ParcelDetailDrawer from './components/ParcelDetailDrawer';
 import ReportViewer from './components/ReportViewer';
-import { analyzeBBox, analyzePolygon, generateReport } from './api/client';
-import './App.css';
+import QueryBar from './components/QueryBar';
+import { queryCategory, generateTextReport, getParcelDetail } from './api/client';
+import './index.css';
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState('map');
-  const [analysisData, setAnalysisData] = useState(null);
-  const [selectedBlockId, setSelectedBlockId] = useState('');
-  const [isGenerating, setIsGenerating] = useState(false);
+  // Selection state
+  const [selectionSummary, setSelectionSummary] = useState(null);
+  const [selectionData, setSelectionData] = useState(null); // Full parcel data
+  const [selectedObjectIds, setSelectedObjectIds] = useState([]);
+  
+  // Query state
+  const [highlightedObjectIds, setHighlightedObjectIds] = useState([]);
+  const [queriedParcels, setQueriedParcels] = useState([]);
+  const [activeCategory, setActiveCategory] = useState(null);
+  
+  // UI state
+  const [drawMode, setDrawMode] = useState(null); // 'polygon' | 'rectangle' | null
+  const [queryMode, setQueryMode] = useState(false);
+  const [isBottomPanelExpanded, setIsBottomPanelExpanded] = useState(true);
+  const [activeTab, setActiveTab] = useState('summary'); // 'summary' | 'analysis'
+  
+  // Drawer state
+  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+  const [drawerMode, setDrawerMode] = useState('query'); // 'query' | 'detail' | 'calculator'
+  const [selectedParcel, setSelectedParcel] = useState(null);
+  
+  // Report modal state
+  const [isReportOpen, setIsReportOpen] = useState(false);
+  const [reportData, setReportData] = useState(null);
+  const [isGeneratingReport, setIsGeneratingReport] = useState(false);
+  const [reportError, setReportError] = useState(null);
 
-  const handleAreaSelect = async (payload) => {
-    try {
-      const data = await analyzeBBox(payload);
-      setAnalysisData(data);
-      setActiveTab('analysis');
-    } catch (e) {
-      console.error(e);
+  // Handle selection complete from MapView
+  const handleSelectionComplete = useCallback((summary, objectIds, parcels) => {
+    setSelectionSummary(summary);
+    setSelectedObjectIds(objectIds);
+    setSelectionData({ parcels });
+    setIsBottomPanelExpanded(true);
+    // Reset query state when new selection is made
+    setHighlightedObjectIds([]);
+    setQueriedParcels([]);
+    setActiveCategory(null);
+    setIsDrawerOpen(false);
+  }, []);
+
+  // Handle clear selection
+  const handleClearSelection = useCallback(() => {
+    setSelectionSummary(null);
+    setSelectionData(null);
+    setSelectedObjectIds([]);
+    setHighlightedObjectIds([]);
+    setQueriedParcels([]);
+    setActiveCategory(null);
+    setIsBottomPanelExpanded(false);
+    setIsDrawerOpen(false);
+    setDrawMode(null);
+  }, []);
+
+  // Handle category query from QueryBar or BottomPanel
+  const handleCategorySelect = useCallback(async (category) => {
+    if (activeCategory === category) {
+      // Deselect if same category clicked
+      setActiveCategory(null);
+      setHighlightedObjectIds([]);
+      setQueriedParcels([]);
+      setIsDrawerOpen(false);
+      return;
     }
-  };
 
-  const handlePolygonSelect = async (payload) => {
     try {
-      const data = await analyzePolygon(payload);
-      setAnalysisData(data);
-      setActiveTab('analysis');
+      const result = await queryCategory(category, selectedObjectIds);
+      const objectIds = result.parcels.map(p => p.OBJECTID);
+      
+      setActiveCategory(category);
+      setHighlightedObjectIds(objectIds);
+      setQueriedParcels(result.parcels);
+      setDrawerMode('query');
+      setIsDrawerOpen(true);
     } catch (e) {
-      console.error(e);
+      console.error('Failed to query category:', e);
     }
-  };
+  }, [activeCategory, selectedObjectIds]);
 
-  const handleGenerateReport = async (stats) => {
-    setIsGenerating(true);
+  // Handle parcel click from map
+  const handleParcelClick = useCallback(async (objectId) => {
     try {
-      const result = await generateReport(stats);
-      if (result && result.report_text) {
-         setSelectedBlockId(result.report_text);
-         setActiveTab('report');
-      }
+      const result = await getParcelDetail(objectId);
+      setSelectedParcel(result.parcel);
+      setDrawerMode('detail');
+      setIsDrawerOpen(true);
     } catch (e) {
-      console.error(e);
+      console.error('Failed to get parcel detail:', e);
+    }
+  }, []);
+
+  // Handle parcel selection from drawer list
+  const handleParcelSelect = useCallback((parcel) => {
+    setSelectedParcel(parcel);
+    setDrawerMode('detail');
+  }, []);
+
+  // Handle highlight (hover/click) on parcel in drawer
+  const handleHighlightParcel = useCallback((objectId) => {
+    // Could trigger map zoom/highlight
+    console.log('Highlight parcel:', objectId);
+  }, []);
+
+  // Handle back to query results from parcel detail
+  const handleBackToQuery = useCallback(() => {
+    setSelectedParcel(null);
+    setDrawerMode('query');
+  }, []);
+
+  // Handle report generation
+  const handleGenerateReport = useCallback(async () => {
+    if (!selectionData?.parcels?.length) return;
+    
+    setIsReportOpen(true);
+    setIsGeneratingReport(true);
+    setReportData(null);
+    setReportError(null);
+    
+    try {
+      const result = await generateTextReport(selectionSummary);
+      setReportData(result);
+    } catch (e) {
+      console.error('Failed to generate report:', e);
+      setReportError(e.message || 'Failed to generate report');
     } finally {
-      setIsGenerating(false);
+      setIsGeneratingReport(false);
     }
-  }
+  }, [selectionSummary, selectionData]);
 
-  const handleBlockReportClick = (blockId) => {
-    setSelectedBlockId(blockId);
-    setActiveTab('report');
-  };
+  // Handle draw mode change
+  const handleDrawModeChange = useCallback((mode) => {
+    setDrawMode(prev => prev === mode ? null : mode);
+  }, []);
+
+  // Handle query mode toggle
+  const handleQueryModeToggle = useCallback(() => {
+    setQueryMode(prev => !prev);
+  }, []);
+
+  // Handle zoom to block from AnalysisPanel
+  const handleZoomToBlock = useCallback((block) => {
+    // This would trigger map zoom - for now just log
+    console.log('Zoom to block:', block);
+  }, []);
+
+  // Handle block report generation from AnalysisPanel
+  const handleBlockReport = useCallback(async (block) => {
+    console.log('Generate report for block:', block);
+    // Could trigger a block-specific report generation
+  }, []);
 
   return (
-    <div className="app-container" style={{ display: 'flex', flexDirection: 'column', height: '100vh', fontFamily: 'sans-serif' }}>
-      <header style={{ display: 'flex', gap: '20px', padding: '15px 20px', backgroundColor: '#2c3e50', color: 'white' }}>
-        <h1 style={{ margin: 0, fontSize: '1.2rem', marginRight: '40px' }}>Land Analysis Platform</h1>
-        <button style={tabStyle(activeTab === 'map')} onClick={() => setActiveTab('map')}>Map</button>
-        <button style={tabStyle(activeTab === 'analysis')} onClick={() => setActiveTab('analysis')}>Analysis</button>
-        <button style={tabStyle(activeTab === 'report')} onClick={() => setActiveTab('report')}>Report</button>
-      </header>
+    <div className="app-container" style={styles.container}>
+      {/* Full-screen Map */}
+      <MapView
+        drawMode={drawMode}
+        onDrawModeComplete={() => setDrawMode(null)}
+        onSelectionComplete={handleSelectionComplete}
+        onClearSelection={handleClearSelection}
+        highlightedObjectIds={highlightedObjectIds}
+        onParcelClick={handleParcelClick}
+        selectedObjectIds={selectedObjectIds}
+      />
 
-      <main style={{ flex: 1, overflow: 'hidden', display: 'flex' }}>
-        <div style={{ display: activeTab === 'map' ? 'flex' : 'none', flex: 1, height: '100%' }}>
-          <MapView 
-            onAreaSelect={handleAreaSelect} 
-            onPolygonSelect={handlePolygonSelect} 
-          />
-        </div>
-        <div style={{ display: activeTab === 'analysis' ? 'block' : 'none', flex: 1, height: '100%', overflow: 'auto' }}>
-          <AnalysisPanel 
-            results={analysisData} 
-            onGenerateReport={handleGenerateReport}
-            isGenerating={isGenerating}
-          />
-        </div>
-        <div style={{ display: activeTab === 'report' ? 'block' : 'none', flex: 1, height: '100%', overflow: 'auto' }}>
-          {selectedBlockId && selectedBlockId.length > 50 ? (
-            <div style={{ padding: '30px', whiteSpace: 'pre-wrap' }}>{selectedBlockId}</div>
-          ) : (
-            <ReportViewer blockId={selectedBlockId} />
-          )}
-        </div>
-      </main>
+      {/* Top Bar */}
+      <TopBar
+        selectionSummary={selectionSummary}
+        onGenerateReport={handleGenerateReport}
+        isGeneratingReport={isGeneratingReport}
+      />
+
+      {/* Left Toolbar */}
+      <LeftToolbar
+        drawMode={drawMode}
+        onDrawModeChange={handleDrawModeChange}
+        onClearSelection={handleClearSelection}
+        hasSelection={selectedObjectIds.length > 0}
+        queryMode={queryMode}
+        onQueryModeToggle={handleQueryModeToggle}
+      />
+
+      {/* Query Bar - only visible when selection exists */}
+      {selectionSummary && (
+        <QueryBar
+          selectionSummary={selectionSummary}
+          activeCategory={activeCategory}
+          onCategorySelect={handleCategorySelect}
+          selectedObjectIds={selectedObjectIds}
+          queriedParcels={queriedParcels}
+        />
+      )}
+
+      {/* Bottom Panel - selection statistics with tabs */}
+      {selectionSummary && (
+        <BottomPanel
+          isExpanded={isBottomPanelExpanded}
+          onToggle={() => setIsBottomPanelExpanded(prev => !prev)}
+          selectionSummary={selectionSummary}
+          selectionData={selectionData}
+          activeTab={activeTab}
+          onTabChange={setActiveTab}
+          activeCategory={activeCategory}
+          onCategorySelect={handleCategorySelect}
+          onGenerateReport={handleGenerateReport}
+          isGeneratingReport={isGeneratingReport}
+          onZoomToBlock={handleZoomToBlock}
+          onBlockReport={handleBlockReport}
+        />
+      )}
+
+      {/* Right Drawer - parcel detail, query results, calculators */}
+      <ParcelDetailDrawer
+        isOpen={isDrawerOpen}
+        onClose={() => setIsDrawerOpen(false)}
+        mode={drawerMode}
+        queriedParcels={queriedParcels}
+        activeCategory={activeCategory}
+        selectedParcel={selectedParcel}
+        onParcelSelect={handleParcelSelect}
+        onHighlightParcel={handleHighlightParcel}
+        onBackToQuery={handleBackToQuery}
+      />
+
+      {/* Report Modal */}
+      <ReportViewer
+        isOpen={isReportOpen}
+        onClose={() => setIsReportOpen(false)}
+        reportData={reportData}
+        selectionData={selectionData}
+        isLoading={isGeneratingReport}
+        error={reportError}
+      />
     </div>
   );
 }
 
-const tabStyle = (isActive) => ({
-  background: isActive ? '#34495e' : 'transparent',
-  border: 'none',
-  color: isActive ? '#fff' : '#bdc3c7',
-  padding: '8px 16px',
-  cursor: 'pointer',
-  borderRadius: '4px',
-  fontWeight: isActive ? 'bold' : 'normal',
-});
+const styles = {
+  container: {
+    position: 'relative',
+    width: '100vw',
+    height: '100vh',
+    overflow: 'hidden',
+    background: 'var(--bg-deep-navy)',
+  },
+};

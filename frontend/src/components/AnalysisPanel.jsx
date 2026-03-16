@@ -1,102 +1,411 @@
-import React, { useState } from 'react';
-import { Card, CardContent } from './ui/card';
+import React, { useState, useMemo } from 'react';
+import { Search, ArrowUpDown, ChevronUp, ChevronDown, MapPin, Eye, FileText } from 'lucide-react';
 
-const AnalysisPanel = ({ results, onGenerateReport, isGenerating }) => {
-  const [shopSize, setShopSize] = useState(120);
-  const [mosqueSpace, setMosqueSpace] = useState(8);
+const CATEGORY_COLORS = {
+  Mosque: '#3b82f6',
+  Commercial: '#f59e0b',
+  Residential: '#10b981',
+  Park: '#22c55e',
+  Educational: '#8b5cf6',
+  Government: '#ef4444',
+};
 
-  // This will lift state when you change inputs to re-trigger calculations or 
-  // you can let the user re-trigger analyzing manually.
-  // For now we just display the results given by the backend
+const AnalysisPanel = ({ results, selectionData, onZoomToBlock, onBlockReport }) => {
+  const [searchTerm, setSearchTerm] = useState('');
+  const [sortField, setSortField] = useState('block_id');
+  const [sortDir, setSortDir] = useState('asc');
 
-  if (!results) {
+  // Generate block-level data from selection
+  const blockData = useMemo(() => {
+    if (!selectionData?.parcels) return [];
+    
+    const blocks = {};
+    selectionData.parcels.forEach(parcel => {
+      const blockId = parcel.BLOCK_NO || parcel.BLOCK_ID || 'Unknown';
+      if (!blocks[blockId]) {
+        blocks[blockId] = {
+          block_id: blockId,
+          total_parcels: 0,
+          total_area: 0,
+          vacant_count: 0,
+          mosque_count: 0,
+          mosque_area: 0,
+          commercial_count: 0,
+          commercial_area: 0,
+          residential_count: 0,
+          centroid: null,
+        };
+      }
+      blocks[blockId].total_parcels++;
+      blocks[blockId].total_area += Number(parcel.AREA_M2) || 0;
+      
+      const status = (parcel.PARCEL_STATUS_LABEL || parcel.PARCEL_STATUS_LABEL_EN || '').toLowerCase();
+      if (status.includes('vacant')) blocks[blockId].vacant_count++;
+      
+      const cat = parcel.LANDUSE_CATEGORY;
+      const area = Number(parcel.AREA_M2) || 0;
+      if (cat === 'Mosque') {
+        blocks[blockId].mosque_count++;
+        blocks[blockId].mosque_area += area;
+      } else if (cat === 'Commercial') {
+        blocks[blockId].commercial_count++;
+        blocks[blockId].commercial_area += area;
+      } else if (cat === 'Residential') {
+        blocks[blockId].residential_count++;
+      }
+      
+      // Store centroid for zoom
+      if (!blocks[blockId].centroid && parcel.centroid) {
+        blocks[blockId].centroid = parcel.centroid;
+      }
+    });
+    
+    // Add computed values for sorting
+    return Object.values(blocks).map(block => ({
+      ...block,
+      mosque_capacity: Math.floor(block.mosque_area / 8),
+      est_shops: Math.floor(block.commercial_area / 120),
+    }));
+  }, [selectionData]);
+
+  // Filter and sort
+  const filteredData = useMemo(() => {
+    let data = [...blockData];
+    
+    if (searchTerm) {
+      const term = searchTerm.toLowerCase();
+      data = data.filter(b => String(b.block_id).toLowerCase().includes(term));
+    }
+    
+    data.sort((a, b) => {
+      let aVal = a[sortField];
+      let bVal = b[sortField];
+      if (typeof aVal === 'string') {
+        aVal = aVal.toLowerCase();
+        bVal = bVal.toLowerCase();
+      }
+      if (sortDir === 'asc') return aVal > bVal ? 1 : -1;
+      return aVal < bVal ? 1 : -1;
+    });
+    
+    return data;
+  }, [blockData, searchTerm, sortField, sortDir]);
+
+  const toggleSort = (field) => {
+    if (sortField === field) {
+      setSortDir(d => d === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortField(field);
+      setSortDir('asc');
+    }
+  };
+
+  const SortIcon = ({ field }) => {
+    if (sortField !== field) return <ArrowUpDown size={12} style={{ opacity: 0.3 }} />;
+    return sortDir === 'asc' ? <ChevronUp size={12} /> : <ChevronDown size={12} />;
+  };
+
+  if (!selectionData?.parcels?.length) {
     return (
-      <div className="p-4 bg-gray-50 border rounded text-center text-gray-500">
-        Draw a box or polygon to run analysis.
+      <div style={styles.emptyState}>
+        <MapPin size={32} style={{ opacity: 0.4 }} />
+        <p>Draw a selection to see block analysis</p>
       </div>
     );
   }
 
   return (
-    <div className="space-y-4">
-      <Card>
-        <CardContent className="p-4 space-y-4">
-          <h2 className="text-xl font-bold border-b pb-2">Analysis Summary</h2>
-          
-          <div className="grid grid-cols-2 gap-4">
-            <div className="bg-blue-50 p-3 rounded">
-              <div className="text-sm text-blue-800">Total Parcels</div>
-              <div className="text-2xl font-bold">{results.total_parcels?.toLocaleString()}</div>
-            </div>
-            <div className="bg-green-50 p-3 rounded">
-              <div className="text-sm text-green-800">Total Area</div>
-              <div className="text-2xl font-bold">
-                {(results.total_area_m2 / 10000).toFixed(2)} ha
-              </div>
-            </div>
-          </div>
-          
-          <div className="border-t pt-4 mt-4">
-               <h3 className="font-semibold mb-2 text-indigo-800">Development Status</h3>
-               <div className="flex gap-4">
-                   <div className="flex-1 bg-yellow-50 p-2 text-center rounded">
-                       <div className="text-xs text-yellow-700">Vacant</div>
-                       <div className="font-bold">{results.vacant_count}</div>
-                   </div>
-                   <div className="flex-1 bg-teal-50 p-2 text-center rounded">
-                       <div className="text-xs text-teal-700">Developed</div>
-                       <div className="font-bold">{results.developed_count}</div>
-                   </div>
-               </div>
-          </div>
+    <div style={styles.container}>
+      {/* Search */}
+      <div style={styles.searchRow}>
+        <div style={styles.searchBox}>
+          <Search size={14} style={{ color: 'var(--text-secondary)' }} />
+          <input
+            type="text"
+            placeholder="Search blocks..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            style={styles.searchInput}
+          />
+        </div>
+        <span style={styles.resultCount}>{filteredData.length} blocks</span>
+      </div>
 
-          <div className="space-y-3 border-t pt-4">
-            <h3 className="font-semibold">Subtype Classifications</h3>
-            <div className="max-h-40 overflow-y-auto pr-2 gap-2 text-sm">
-                {results.subtypes_counts && Object.entries(results.subtypes_counts).map(([subtype, count]) => (
-                  <div key={subtype} className="flex justify-between border-b pb-1">
-                    <span className="text-gray-700">{subtype}</span>
-                    <span className="font-medium bg-gray-100 px-2 rounded">{count}</span>
-                  </div>
-                ))}
-            </div>
-          </div>
+      {/* Table */}
+      <div style={styles.tableWrapper}>
+        <table style={styles.table}>
+          <thead>
+            <tr>
+              <th style={styles.th} onClick={() => toggleSort('block_id')}>
+                <span>Block ID</span>
+                <SortIcon field="block_id" />
+              </th>
+              <th style={styles.th} onClick={() => toggleSort('total_parcels')}>
+                <span>Parcels</span>
+                <SortIcon field="total_parcels" />
+              </th>
+              <th style={styles.th} onClick={() => toggleSort('mosque_count')}>
+                <span>Mosque</span>
+                <SortIcon field="mosque_count" />
+              </th>
+              <th style={styles.th} onClick={() => toggleSort('commercial_count')}>
+                <span>Commercial</span>
+                <SortIcon field="commercial_count" />
+              </th>
+              <th style={styles.th} onClick={() => toggleSort('residential_count')}>
+                <span>Residential</span>
+                <SortIcon field="residential_count" />
+              </th>
+              <th style={styles.th} onClick={() => toggleSort('mosque_capacity')}>
+                <span>Mosque Cap.</span>
+                <SortIcon field="mosque_capacity" />
+              </th>
+              <th style={styles.th} onClick={() => toggleSort('est_shops')}>
+                <span>Est. Shops</span>
+                <SortIcon field="est_shops" />
+              </th>
+              <th style={styles.th} onClick={() => toggleSort('vacant_count')}>
+                <span>Vacant</span>
+                <SortIcon field="vacant_count" />
+              </th>
+              <th style={styles.th}></th>
+            </tr>
+          </thead>
+          <tbody>
+            {filteredData.map((block) => (
+                <tr key={block.block_id} style={styles.tr}>
+                  <td style={styles.td}>
+                    <span style={styles.blockId}>{block.block_id}</span>
+                  </td>
+                  <td style={styles.td}>{block.total_parcels}</td>
+                  <td style={styles.td}>
+                    <span style={{ color: block.mosque_count > 0 ? CATEGORY_COLORS.Mosque : 'var(--text-secondary)', fontWeight: block.mosque_count > 0 ? 600 : 400 }}>
+                      {block.mosque_count}
+                    </span>
+                  </td>
+                  <td style={styles.td}>
+                    <span style={{ color: block.commercial_count > 0 ? CATEGORY_COLORS.Commercial : 'var(--text-secondary)', fontWeight: block.commercial_count > 0 ? 600 : 400 }}>
+                      {block.commercial_count}
+                    </span>
+                  </td>
+                  <td style={styles.td}>
+                    <span style={{ color: block.residential_count > 0 ? CATEGORY_COLORS.Residential : 'var(--text-secondary)', fontWeight: block.residential_count > 0 ? 600 : 400 }}>
+                      {block.residential_count}
+                    </span>
+                  </td>
+                  <td style={styles.td}>
+                    <span style={{ color: block.mosque_capacity > 0 ? 'var(--text-primary)' : 'var(--text-secondary)' }}>
+                      {block.mosque_capacity.toLocaleString()}
+                    </span>
+                  </td>
+                  <td style={styles.td}>
+                    <span style={{ color: block.est_shops > 0 ? 'var(--text-primary)' : 'var(--text-secondary)' }}>
+                      {block.est_shops.toLocaleString()}
+                    </span>
+                  </td>
+                  <td style={styles.td}>
+                    <span style={{
+                      ...styles.vacantBadge,
+                      opacity: block.vacant_count > 0 ? 1 : 0.3,
+                    }}>
+                      {block.vacant_count}
+                    </span>
+                  </td>
+                  <td style={styles.td}>
+                    <div style={styles.actionButtons}>
+                      <button
+                        style={styles.viewButton}
+                        onClick={() => onZoomToBlock && onZoomToBlock(block)}
+                        title="Zoom to block"
+                      >
+                        <Eye size={14} />
+                      </button>
+                      <button
+                        style={styles.reportButton}
+                        onClick={() => onBlockReport && onBlockReport(block)}
+                        title="Generate block report"
+                      >
+                        <FileText size={14} />
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
 
-          <div className="space-y-4 border-t pt-4">
-            <h3 className="font-semibold text-purple-800">Capacity & Usage Estimates</h3>
-            
-            <div className="bg-gray-50 p-3 rounded-lg border">
-                <div className="flex justify-between items-center mb-2">
-                    <div className="text-sm font-medium">Mosque Capacity</div>
-                    <div className="text-lg font-bold text-blue-600">{results.total_mosque_capacity?.toLocaleString()} <span className="text-xs text-gray-500 font-normal">people</span></div>
-                </div>
-                <div className="text-xs text-gray-500">Based on {results.mosque_space_m2} m² per person (adjustable in Map tools)</div>
-            </div>
-
-            <div className="bg-gray-50 p-3 rounded-lg border">
-                <div className="flex justify-between items-center mb-2">
-                    <div className="text-sm font-medium">Commercial Usage</div>
-                    <div className="text-lg font-bold text-green-600">{results.total_shops?.toLocaleString()} <span className="text-xs text-gray-500 font-normal">shops</span></div>
-                </div>
-                <div className="text-xs text-gray-500">Based on {results.shop_size_m2} m² per shop (adjustable in Map tools)</div>
-            </div>
-          </div>
-
-          <div className="pt-4 mt-4 border-t">
-            <button
-              onClick={() => onGenerateReport(results)}
-              disabled={isGenerating || results.total_parcels === 0}
-              className={`w-full py-2 px-4 rounded font-medium text-white ${
-                isGenerating ? 'bg-gray-400 cursor-not-allowed' : 'bg-indigo-600 hover:bg-indigo-700'
-              }`}
-            >
-              {isGenerating ? 'Generating AI Report...' : 'Generate AI Report'}
-            </button>
-          </div>
-        </CardContent>
-      </Card>
+      {/* Summary Footer */}
+      <div style={styles.footer}>
+        <div style={styles.footerStat}>
+          <span style={styles.footerLabel}>Total Parcels</span>
+          <span style={styles.footerValue}>{selectionData.parcels.length}</span>
+        </div>
+        <div style={styles.footerStat}>
+          <span style={styles.footerLabel}>Total Area</span>
+          <span style={styles.footerValue}>
+            {(selectionData.parcels.reduce((s, p) => s + (Number(p.AREA_M2) || 0), 0) / 10000).toFixed(2)} ha
+          </span>
+        </div>
+      </div>
     </div>
   );
+};
+
+const styles = {
+  container: {
+    display: 'flex',
+    flexDirection: 'column',
+    height: '100%',
+    background: 'var(--panel-surface)',
+  },
+  emptyState: {
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
+    padding: 40,
+    color: 'var(--text-secondary)',
+    fontSize: '0.85rem',
+  },
+  searchRow: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: '12px 16px',
+    borderBottom: '1px solid var(--panel-border)',
+  },
+  searchBox: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 8,
+    padding: '6px 10px',
+    background: 'var(--bg-deep-navy)',
+    borderRadius: 6,
+    border: '1px solid var(--panel-border)',
+  },
+  searchInput: {
+    background: 'none',
+    border: 'none',
+    outline: 'none',
+    color: 'var(--text-primary)',
+    fontSize: '0.8rem',
+    width: 150,
+  },
+  resultCount: {
+    fontSize: '0.75rem',
+    color: 'var(--text-secondary)',
+  },
+  tableWrapper: {
+    flex: 1,
+    overflowY: 'auto',
+  },
+  table: {
+    width: '100%',
+    borderCollapse: 'collapse',
+    fontSize: '0.8rem',
+  },
+  th: {
+    padding: '10px 12px',
+    textAlign: 'left',
+    background: 'var(--bg-deep-navy)',
+    color: 'var(--text-secondary)',
+    fontWeight: 600,
+    fontSize: '0.7rem',
+    textTransform: 'uppercase',
+    letterSpacing: '0.03em',
+    cursor: 'pointer',
+    userSelect: 'none',
+    position: 'sticky',
+    top: 0,
+    display: 'flex',
+    alignItems: 'center',
+    gap: 4,
+  },
+  categoryTh: {
+    cursor: 'default',
+  },
+  tr: {
+    borderBottom: '1px solid var(--panel-border)',
+    transition: 'background var(--transition-fast)',
+  },
+  td: {
+    padding: '10px 12px',
+    color: 'var(--text-primary)',
+  },
+  blockId: {
+    fontWeight: 600,
+    color: 'var(--accent-blue)',
+  },
+  vacantBadge: {
+    padding: '2px 8px',
+    background: 'rgba(245, 158, 11, 0.2)',
+    color: '#f59e0b',
+    borderRadius: 4,
+    fontSize: '0.75rem',
+    fontWeight: 600,
+  },
+  categoryDots: {
+    display: 'flex',
+    gap: 4,
+  },
+  catDot: {
+    width: 10,
+    height: 10,
+    borderRadius: '50%',
+  },
+  actionButtons: {
+    display: 'flex',
+    gap: 6,
+  },
+  viewButton: {
+    width: 28,
+    height: 28,
+    borderRadius: 6,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    background: 'var(--panel-border)',
+    color: 'var(--text-secondary)',
+    cursor: 'pointer',
+    transition: 'all var(--transition-fast)',
+  },
+  reportButton: {
+    width: 28,
+    height: 28,
+    borderRadius: 6,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    background: 'var(--accent-blue)',
+    color: 'white',
+    cursor: 'pointer',
+    transition: 'all var(--transition-fast)',
+  },
+  footer: {
+    display: 'flex',
+    justifyContent: 'space-around',
+    padding: '12px 16px',
+    background: 'var(--bg-deep-navy)',
+    borderTop: '1px solid var(--panel-border)',
+  },
+  footerStat: {
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    gap: 2,
+  },
+  footerLabel: {
+    fontSize: '0.7rem',
+    color: 'var(--text-secondary)',
+    textTransform: 'uppercase',
+  },
+  footerValue: {
+    fontSize: '1rem',
+    fontWeight: 600,
+    color: 'var(--text-primary)',
+  },
 };
 
 export default AnalysisPanel;

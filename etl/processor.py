@@ -1,216 +1,297 @@
+"""ETL Processor - SUBTYPE-based classification pipeline.
+
+This processor uses SUBTYPE as the single source of truth for all parcel
+classification, category assignment, and capacity rate calculations.
+"""
+
 import sqlite3
+import warnings
+import os
+
 import pandas as pd
 import geopandas as gpd
 import pyogrio
-import os
 import dotenv
 
-from etl.constants import (
-    DETAILSLANDUSE_MAP, 
-    SUBTYPE_MAP, 
-    MAINLANDUSE_MAP, 
-    PARCEL_STATUS_MAP, 
-    METRIC_CRS
-)
+from etl.constants import SUBTYPE_MAP, PARCEL_STATUS_MAP, METRIC_CRS, QUERYABLE_CATEGORIES
 
 dotenv.load_dotenv()
 DB_PATH = os.getenv("SQLITE_DB_PATH", "data/gis_database.db")
-GDB_PATH = os.getenv("DB_PATH", "data/AI _Test.gdb")
+GDB_PATH = os.getenv("GDB_PATH", "data/AI _Test.gdb")
 
-def auto_detect_layer(layers):
-    """Finds the most likely parcel/boundary layer, or returns the first polygonal one."""
+
+def auto_detect_layer(gdb_path: str) -> str:
+    """Finds the most likely parcel/boundary layer in the GDB."""
+    layers = pyogrio.list_layers(gdb_path)
+    print(f"Available layers: {[l[0] for l in layers]}")
+
     for layer in layers:
         name = layer[0]
-        # Favor layers with parcel or boundary in the name
         if "parcel" in name.lower() or "boundary" in name.lower():
             return name
-        
-    # Fallback to the first layer if no match is found
+
     if layers:
         return layers[0][0]
     raise ValueError("No layers found in the Geodatabase.")
 
-def get_dynamic_category(val):
-    """If a code is not in constants.py, auto-classify based on its starting digit."""
-    if pd.isnull(val):
-        return ["Unknown", 1.0, "Unknown", "غير معروف"]
-    
-    # Check constants map first
-    constants_map = {float(k): v for k, v in DETAILSLANDUSE_MAP.items()}
-    item = constants_map.get(float(val))
-    if item:
-        return [item["category"], item["capacity_rate"], item["label_en"], item["label_ar"]]
-    
-    # Dynamic logic for new datasets loaded on the fly
-    val_str = str(int(val))
-    if val_str.startswith('100') or val_str.startswith('4'):
-        return ["Commercial", 120, f"Commercial {val_str}", f"تجاري {val_str}"]
-    elif val_str.startswith('101'):
-        return ["Residential", 10, f"Residential {val_str}", f"سكني {val_str}"]
-    elif val_str.startswith('301'):
-        return ["Mosque", 8, f"Mosque {val_str}", f"مسجد {val_str}"]
-    elif val_str.startswith('303') or val_str.startswith('304'):
-        return ["Educational", 6, f"Educational {val_str}", f"تعليمي {val_str}"]
-    elif val_str.startswith('306'):
-        return ["Park", 15, f"Park {val_str}", f"حديقة {val_str}"]
-    elif val_str.startswith('2'):
-        return ["Industrial", 50, f"Industrial {val_str}", f"صناعي {val_str}"]
-    
-    return ["Unknown", 1.0, f"Code {val_str}", f"رمز {val_str}"]
 
-def get_dynamic_subtype(val):
-    if pd.isnull(val):
-        return ["Unknown", "غير معروف"]
-    constants_map = {float(k): v for k, v in SUBTYPE_MAP.items()}
-    item = constants_map.get(float(val))
-    if item:
-        return [item["label_en"], item["label_ar"]]
-    return [f"Type {int(val)}", f"النوع {int(val)}"]
+def classify_by_subtype(subtype_val) -> dict:
+    """Look up SUBTYPE in SUBTYPE_MAP to get classification data."""
+    if pd.isnull(subtype_val):
+        subtype_val = 0
 
-def get_dynamic_mainland(val):
-    if pd.isnull(val):
+    try:
+        subtype_key = int(float(subtype_val))
+    except (ValueError, TypeError):
+        subtype_key = 0
+
+    if subtype_key in SUBTYPE_MAP:
+        return SUBTYPE_MAP[subtype_key]
+
+    # Fallback for unknown codes
+    return {
+        "label_en": f"Unknown ({subtype_key})",
+        "label_ar": f"غير معروف ({subtype_key})",
+        "LANDUSE_CATEGORY": "Unknown",
+        "IS_COMMERCIAL": False,
+        "CAPACITY_RATE": 0,
+        "CAPACITY_UNIT": "",
+    }
+
+
+def get_parcel_status_label(status_val) -> str:
+    """Map PARCELSTATUS code to label."""
+    if pd.isnull(status_val):
         return "Unknown"
-    constants_map = {float(k): v for k, v in MAINLANDUSE_MAP.items()}
-    item = constants_map.get(float(val))
-    if item:
-        return item["label_en"]
-    return f"Category {int(val)}"
+
+    try:
+        status_key = int(float(status_val))
+    except (ValueError, TypeError):
+        return "Unknown"
+
+    return PARCEL_STATUS_MAP.get(status_key, "Unknown")
+
 
 def process_data():
-    print(f"Connecting to Geodatabase: {GDB_PATH} ...")
+    """Main ETL pipeline following the SUBTYPE-based classification approach."""
+    print(f"[ETL] Connecting to Geodatabase: {GDB_PATH}")
     if not os.path.exists(GDB_PATH):
-        print(f"Error: Database {GDB_PATH} not found.")
-        return
+        raise FileNotFoundError(f"Database not found: {GDB_PATH}")
 
-    # 1. Fetch Layers Dynamically at runtime
-    layers = pyogrio.list_layers(GDB_PATH)
-    print("Available layers detected:", [l[0] for l in layers])
+    # Read the data using pyogrio
+    layer_name = auto_detect_layer(GDB_PATH)
+    print(f"[ETL] Using layer: {layer_name}")
 
-    layer_name = auto_detect_layer(layers)
-    print(f"Auto-selected working layer: {layer_name}")
-    
-    gdf = gpd.read_file(GDB_PATH, layer=layer_name)
-    print(f"Loaded {len(gdf)} parcels dynamically.")
+    gdf = gpd.read_file(GDB_PATH, layer=layer_name, engine="pyogrio")
+    print(f"[ETL] Loaded {len(gdf)} parcels with {len(gdf.columns)} columns")
 
-    # 2. Geometry reprojection to Metric (EPSG:32637)
-    print(f"Reprojecting geometry to {METRIC_CRS} and calculating precise Area (M2)...")
+    # =========================================================================
+    # Step 1 — Geometry reprojection
+    # Reproject from EPSG:4326 to EPSG:32637 and compute area in m²
+    # =========================================================================
+    print(f"[ETL] Step 1: Reprojecting to {METRIC_CRS} and computing area...")
     gdf_metric = gdf.to_crs(METRIC_CRS)
     gdf["AREA_M2"] = gdf_metric.geometry.area
-    
-    # Safely compute centroid (ignoring CRS warning since we just want coordinates)
-    import warnings
+
+    # =========================================================================
+    # Step 2 — Compute representative point (NOT centroid)
+    # representative_point() is guaranteed to fall inside the polygon
+    # =========================================================================
+    print("[ETL] Step 2: Computing representative points...")
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         rep_points = gdf.geometry.representative_point()
         gdf["REPR_LON"] = rep_points.x
         gdf["REPR_LAT"] = rep_points.y
 
-    # 3. Apply Dynamic Three-Column Classification on the fly
-    print("Applying dynamic standard classifications...")
-    
-    if "DETAILSLANDUSE" in gdf.columns:
-        gdf[["LANDUSE_CATEGORY", "CAPACITY_RATE", "DETAIL_LABEL_EN", "DETAIL_LABEL_AR"]] = \
-            pd.DataFrame(gdf["DETAILSLANDUSE"].apply(get_dynamic_category).tolist(), index=gdf.index)
-    else:
-        print("Warning: DETAILSLANDUSE column missing. Using fallback values.")
-        gdf[["LANDUSE_CATEGORY", "CAPACITY_RATE", "DETAIL_LABEL_EN", "DETAIL_LABEL_AR"]] = ["Unknown", 1.0, "Unknown", "غير معروف"]
+    # =========================================================================
+    # Step 3 — SUBTYPE-based classification
+    # SUBTYPE is the single source of truth for all classification
+    # =========================================================================
+    print("[ETL] Step 3: Classifying parcels by SUBTYPE...")
+    if "SUBTYPE" not in gdf.columns:
+        raise ValueError("SUBTYPE column not found in the dataset")
 
-    if "SUBTYPE" in gdf.columns:
-        gdf[["SUBTYPE_LABEL_EN", "SUBTYPE_LABEL_AR"]] = \
-            pd.DataFrame(gdf["SUBTYPE"].apply(get_dynamic_subtype).tolist(), index=gdf.index)
-    else:
-        gdf[["SUBTYPE_LABEL_EN", "SUBTYPE_LABEL_AR"]] = ["Unknown", "غير معروف"]
+    classifications = gdf["SUBTYPE"].apply(classify_by_subtype)
 
-    if "MAINLANDUSE" in gdf.columns:
-        gdf["MAINLANDUSE_LABEL_EN"] = gdf["MAINLANDUSE"].apply(get_dynamic_mainland)
-    else:
-        gdf["MAINLANDUSE_LABEL_EN"] = "Unknown"
+    gdf["LANDUSE_CATEGORY"] = classifications.apply(lambda x: x["LANDUSE_CATEGORY"])
+    gdf["IS_COMMERCIAL"] = classifications.apply(lambda x: x["IS_COMMERCIAL"])
+    gdf["CAPACITY_RATE"] = classifications.apply(lambda x: x["CAPACITY_RATE"])
+    gdf["SUBTYPE_LABEL_EN"] = classifications.apply(lambda x: x["label_en"])
+    gdf["SUBTYPE_LABEL_AR"] = classifications.apply(lambda x: x["label_ar"])
 
+    # =========================================================================
+    # Step 4 — Development status
+    # Map PARCELSTATUS through PARCEL_STATUS_MAP
+    # =========================================================================
+    print("[ETL] Step 4: Mapping parcel status...")
     if "PARCELSTATUS" in gdf.columns:
-        status_map = {float(k): v for k, v in PARCEL_STATUS_MAP.items()}
-        gdf["PARCEL_STATUS_LABEL"] = gdf["PARCELSTATUS"].apply(
-            lambda val: status_map.get(float(val), "Unknown") if pd.notnull(val) else "Unknown"
-        )
+        gdf["PARCEL_STATUS_LABEL"] = gdf["PARCELSTATUS"].apply(get_parcel_status_label)
     else:
         gdf["PARCEL_STATUS_LABEL"] = "Unknown"
 
-    # 4. Capacity and unit estimation
-    print("Calculating intelligent estimates (Capacities/Shops)...")
-    capped_rate = gdf["CAPACITY_RATE"].replace(0, 1)
-    gdf["CAPACITY_ESTIMATED"] = (gdf["AREA_M2"] / capped_rate).fillna(0).astype(int)
-    
+    # =========================================================================
+    # Step 5 — Capacity estimation
+    # CAPACITY_ESTIMATED = AREA_M2 / CAPACITY_RATE (where rate > 0)
+    # SHOPS_ESTIMATED = AREA_M2 / 120 for commercial, use COMMERCIALUNITS if present
+    # =========================================================================
+    print("[ETL] Step 5: Estimating capacities...")
+
+    # Capacity estimation: only where CAPACITY_RATE > 0
+    gdf["CAPACITY_ESTIMATED"] = 0.0
+    valid_rate_mask = gdf["CAPACITY_RATE"] > 0
+    gdf.loc[valid_rate_mask, "CAPACITY_ESTIMATED"] = (
+        gdf.loc[valid_rate_mask, "AREA_M2"] / gdf.loc[valid_rate_mask, "CAPACITY_RATE"]
+    )
+    gdf["CAPACITY_ESTIMATED"] = gdf["CAPACITY_ESTIMATED"].fillna(0).astype(int)
+
+    # Shops estimation: AREA_M2 / 120 for commercial parcels
     gdf["SHOPS_ESTIMATED"] = 0
-    mask_commercial = gdf["LANDUSE_CATEGORY"] == "Commercial"
-    gdf.loc[mask_commercial, "SHOPS_ESTIMATED"] = (gdf.loc[mask_commercial, "AREA_M2"] / 120).fillna(0).astype(int)
+    commercial_mask = gdf["IS_COMMERCIAL"] == True
+    gdf.loc[commercial_mask, "SHOPS_ESTIMATED"] = (
+        gdf.loc[commercial_mask, "AREA_M2"] / 120
+    ).fillna(0).astype(int)
 
-    # 5. Overrides
-    for col, estimated_col in [("RESIDENTIALUNITS", "CAPACITY_ESTIMATED"), ("COMMERCIALUNITS", "SHOPS_ESTIMATED")]:
-        if col in gdf.columns:
-            valid = pd.to_numeric(gdf[col], errors='coerce').fillna(0) > 0
-            gdf.loc[valid, estimated_col] = pd.to_numeric(gdf.loc[valid, col], errors='coerce')
+    # Override SHOPS_ESTIMATED with actual COMMERCIALUNITS if available
+    if "COMMERCIALUNITS" in gdf.columns:
+        valid_units = pd.to_numeric(gdf["COMMERCIALUNITS"], errors="coerce").fillna(0)
+        has_units = valid_units > 0
+        gdf.loc[has_units, "SHOPS_ESTIMATED"] = valid_units[has_units].astype(int)
 
-    # 6. Building block summary robustly
-    print("Building aggregated Block Summary...")
-    if "BLOCK_ID" not in gdf.columns: gdf["BLOCK_ID"] = "Unknown"
-    if "SUBDIVISIONPLAN_ID" not in gdf.columns: gdf["SUBDIVISIONPLAN_ID"] = "Unknown"
+    # =========================================================================
+    # Step 6 — Build the block summary
+    # Group by BLOCK_ID and compute aggregated statistics
+    # =========================================================================
+    print("[ETL] Step 6: Building block summary...")
 
-    gdf["IS_VACANT"] = (gdf["PARCEL_STATUS_LABEL"] == "Vacant").astype(int)
-    gdf["IS_DEVELOPED"] = (gdf["PARCEL_STATUS_LABEL"] == "Developed").astype(int)
-    gdf["IS_MOSQUE"] = (gdf["LANDUSE_CATEGORY"] == "Mosque").astype(int)
-    gdf["MOSQUE_CAPACITY"] = gdf["CAPACITY_ESTIMATED"] * gdf["IS_MOSQUE"]
+    if "BLOCK_ID" not in gdf.columns:
+        gdf["BLOCK_ID"] = "Unknown"
 
-    dominant_plan = gdf.groupby("BLOCK_ID")["SUBDIVISIONPLAN_ID"].apply(
-        lambda x: x.mode().iloc[0] if not x.mode().empty else "Unknown"
-    ).reset_index()
-
-    cat_counts = pd.crosstab(gdf["BLOCK_ID"], gdf["LANDUSE_CATEGORY"], dropna=False).add_prefix("CAT_")
-    main_counts = pd.crosstab(gdf["BLOCK_ID"], gdf["MAINLANDUSE_LABEL_EN"], dropna=False).add_prefix("MAIN_")
-
-    block_summary = gdf.groupby("BLOCK_ID").agg(
-        TOTAL_PARCELS=("BLOCK_ID", "count"),
-        TOTAL_AREA_M2=("AREA_M2", "sum"),
-        VACANT_COUNT=("IS_VACANT", "sum"),
-        DEVELOPED_COUNT=("IS_DEVELOPED", "sum"),
-        TOTAL_MOSQUE_CAPACITY=("MOSQUE_CAPACITY", "sum"),
-        TOTAL_SHOPS=("SHOPS_ESTIMATED", "sum"),
+    # Create helper columns for aggregation
+    gdf["_VACANT"] = (gdf["PARCEL_STATUS_LABEL"] == "Vacant").astype(int)
+    gdf["_DEVELOPED"] = (gdf["PARCEL_STATUS_LABEL"] == "Developed").astype(int)
+    gdf["_MOSQUE_CAPACITY"] = gdf.apply(
+        lambda r: r["CAPACITY_ESTIMATED"] if r["LANDUSE_CATEGORY"] == "Mosque" else 0,
+        axis=1
     )
 
-    block_summary = block_summary.join(cat_counts).join(main_counts).reset_index()
-    block_summary = block_summary.merge(dominant_plan, on="BLOCK_ID", how="left")
+    # Category counts for each category
+    category_pivot = pd.crosstab(gdf["BLOCK_ID"], gdf["LANDUSE_CATEGORY"])
 
-    # 7. Write to robust SQLite Database
-    print(f"Dumping records to Local SQLite: {DB_PATH}...")
+    # Ensure all queryable categories exist
+    for cat in QUERYABLE_CATEGORIES + ["Unknown"]:
+        if cat not in category_pivot.columns:
+            category_pivot[cat] = 0
+
+    category_pivot = category_pivot.rename(columns={
+        "Mosque": "mosque_count",
+        "Commercial": "commercial_count",
+        "Residential": "residential_count",
+        "Park": "park_count",
+        "Educational": "educational_count",
+        "Government": "government_count",
+        "Unknown": "unknown_count",
+    })
+
+    block_summary = gdf.groupby("BLOCK_ID").agg(
+        total_parcels=("BLOCK_ID", "count"),
+        total_area_m2=("AREA_M2", "sum"),
+        vacant_count=("_VACANT", "sum"),
+        developed_count=("_DEVELOPED", "sum"),
+        total_mosque_capacity=("_MOSQUE_CAPACITY", "sum"),
+        total_shops_estimated=("SHOPS_ESTIMATED", "sum"),
+    ).reset_index()
+
+    # Merge category counts
+    block_summary = block_summary.merge(
+        category_pivot.reset_index(),
+        on="BLOCK_ID",
+        how="left"
+    )
+
+    # Fill NaN counts with 0
+    count_cols = ["mosque_count", "commercial_count", "residential_count",
+                  "park_count", "educational_count", "government_count", "unknown_count"]
+    for col in count_cols:
+        if col in block_summary.columns:
+            block_summary[col] = block_summary[col].fillna(0).astype(int)
+
+    # =========================================================================
+    # Step 7 — Build the searchable index
+    # Lightweight table for fast queries
+    # =========================================================================
+    print("[ETL] Step 7: Building parcel search index...")
+
+    # Determine the best ID column available
+    id_col = None
+    for candidate in ["OBJECTID", "PARCEL_ID", "GLOBALID"]:
+        if candidate in gdf.columns:
+            id_col = candidate
+            break
+    if id_col is None:
+        gdf["PARCEL_ID"] = range(1, len(gdf) + 1)
+        id_col = "PARCEL_ID"
+
+    search_columns = [
+        id_col,
+        "LANDUSE_CATEGORY",
+        "SUBTYPE_LABEL_EN",
+        "REPR_LAT",
+        "REPR_LON",
+        "BLOCK_ID",
+        "AREA_M2",
+        "CAPACITY_ESTIMATED",
+        "SHOPS_ESTIMATED",
+        "IS_COMMERCIAL",
+        "PARCEL_STATUS_LABEL",
+    ]
+
+    parcel_search_index = gdf[search_columns].copy()
+    parcel_search_index = parcel_search_index.rename(columns={id_col: "PARCEL_ID"})
+
+    # =========================================================================
+    # Write to SQLite Database
+    # =========================================================================
+    print(f"[ETL] Writing to SQLite: {DB_PATH}")
+
+    # Ensure data directory exists
+    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
+
     conn = sqlite3.connect(DB_PATH)
-    
-    drop_cols = ["geometry", "IS_VACANT", "IS_DEVELOPED", "IS_MOSQUE", "MOSQUE_CAPACITY"]
-    df_parcels = pd.DataFrame(gdf.drop(columns=[c for c in drop_cols if c in gdf.columns], errors="ignore"))
-    
-    for col in df_parcels.select_dtypes(include=['object', 'string', 'str']):
+
+    # Prepare parcels table (drop geometry and helper columns)
+    drop_cols = ["geometry", "_VACANT", "_DEVELOPED", "_MOSQUE_CAPACITY"]
+    df_parcels = gdf.drop(columns=[c for c in drop_cols if c in gdf.columns], errors="ignore")
+
+    # Convert object columns to string for SQLite compatibility
+    for col in df_parcels.select_dtypes(include=["object", "string"]).columns:
         df_parcels[col] = df_parcels[col].astype(str)
 
     df_parcels.to_sql("parcels", conn, if_exists="replace", index=False)
-    print("[ETL] parcels")
+    print(f"[ETL] ✓ parcels table: {len(df_parcels)} rows")
+
     block_summary.to_sql("block_summary", conn, if_exists="replace", index=False)
-    print("[ETL] block_summary")
-    
-    # Process extra layers dynamically
-    for layer in layers:
-        layer_name_clean = layer[0]
-        if layer_name_clean != layer_name:
-            try:
-                extra_df = gpd.read_file(GDB_PATH, layer=layer_name_clean)
-                extra_df = pd.DataFrame(extra_df.drop(columns=["geometry"], errors="ignore"))
-                for col in extra_df.select_dtypes(include=['object', 'string', 'str']):
-                    extra_df[col] = extra_df[col].astype(str)
-                table_name = layer_name_clean.lower()
-                extra_df.to_sql(table_name, conn, if_exists="replace", index=False)
-                print(f"[ETL] {table_name}")
-            except Exception as e:
-                pass # Usually skips silently if layer reading fails
+    print(f"[ETL] ✓ block_summary table: {len(block_summary)} rows")
+
+    parcel_search_index.to_sql("parcel_search_index", conn, if_exists="replace", index=False)
+    print(f"[ETL] ✓ parcel_search_index table: {len(parcel_search_index)} rows")
+
+    # Create indices for faster queries
+    cursor = conn.cursor()
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_search_category ON parcel_search_index(LANDUSE_CATEGORY)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_search_block ON parcel_search_index(BLOCK_ID)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_search_commercial ON parcel_search_index(IS_COMMERCIAL)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_search_parcel ON parcel_search_index(PARCEL_ID)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_parcels_block ON parcels(BLOCK_ID)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_parcels_parcel ON parcels(PARCEL_ID)")
+    conn.commit()
+    print("[ETL] ✓ Indices created")
 
     conn.close()
-    
+
     print(f"[ETL] Done. Database -> {DB_PATH}")
+    return df_parcels, block_summary, parcel_search_index
+
 
 if __name__ == "__main__":
     process_data()
