@@ -3,7 +3,9 @@
 Supports multiple providers: Gemini, Groq, Ollama.
 Generates reports from selection summaries with SUBTYPE-based breakdowns.
 """
+import json
 import os
+import re
 import httpx
 from typing import Optional
 from dotenv import load_dotenv
@@ -231,7 +233,7 @@ def answer_nl_query(
     question: str,
     parcels_summary: dict,
     provider: str = LLM_PROVIDER,
-) -> str:
+) -> dict:
     """Answer a natural language question about parcels in a selection.
 
     Args:
@@ -240,11 +242,13 @@ def answer_nl_query(
         provider: LLM provider to use.
 
     Returns:
-        Answer text.  If the data cannot answer the question the model must
-        say so rather than fabricate information.
+        Dict with 'answer' text and 'matching_parcel_ids' list.
     """
     prompt = _build_nl_query_prompt(question, parcels_summary)
-    return call_llm(prompt, provider)
+    raw = call_llm(prompt, provider)
+    answer, filters = _parse_nl_response(raw)
+    matching_ids = _filter_parcels_by_criteria(parcels_summary.get("parcels", []), filters)
+    return {"answer": answer, "matching_parcel_ids": matching_ids}
 
 
 def _build_nl_query_prompt(question: str, summary: dict) -> str:
@@ -371,7 +375,72 @@ Area Statistics:
 Answer the question directly. If the answer can be derived from the data, provide it with numbers.
 If the data does not have the information, respond: "This information is not available in the current selection data."
 Do not hallucinate or invent numbers.
+
+After your answer, on a NEW line, output a JSON block wrapped in ```json ... ``` with the following structure to indicate which parcels are relevant to your answer:
+{{
+  "relevant_categories": ["list of LANDUSE_CATEGORY values relevant to the question, e.g. Religious, Commercial, Educational"],
+  "relevant_subtypes": ["list of SUBTYPE values if the question targets specific subtypes"],
+  "relevant_details": ["list of DETAIL values if the question targets specific details"],
+  "relevant_statuses": ["list of STATUS values if the question targets development status e.g. Vacant, Developed"]
+}}
+Only include non-empty arrays for criteria that are actually relevant to the question.
+If the question is general (about ALL parcels), return empty arrays for all fields.
 """
+
+
+def _parse_nl_response(raw: str) -> tuple[str, dict]:
+    """Parse LLM response to extract the answer text and filter criteria JSON.
+
+    Returns:
+        Tuple of (answer_text, filters_dict).
+    """
+    filters = {}
+    # Try to extract JSON block from ```json ... ```
+    json_match = re.search(r"```json\s*(\{.*?\})\s*```", raw, re.DOTALL)
+    if json_match:
+        try:
+            filters = json.loads(json_match.group(1))
+        except (json.JSONDecodeError, ValueError):
+            filters = {}
+        # Remove the JSON block from the answer
+        answer = raw[:json_match.start()].strip()
+    else:
+        answer = raw.strip()
+    return answer, filters
+
+
+def _filter_parcels_by_criteria(parcels: list[dict], filters: dict) -> list[str]:
+    """Filter parcels using criteria extracted from LLM response.
+
+    Returns list of matching PARCEL_IDs.
+    """
+    categories = [v.lower() for v in filters.get("relevant_categories", [])]
+    subtypes = [v.lower() for v in filters.get("relevant_subtypes", [])]
+    details = [v.lower() for v in filters.get("relevant_details", [])]
+    statuses = [v.lower() for v in filters.get("relevant_statuses", [])]
+
+    # If no filters specified, no highlighting
+    if not any([categories, subtypes, details, statuses]):
+        return []
+
+    matched = []
+    for p in parcels:
+        cat = (p.get("LANDUSE_CATEGORY") or "").lower()
+        sub = (p.get("SUBTYPE_LABEL_EN") or "").lower()
+        det = (p.get("DETAIL_LABEL_EN") or "").lower()
+        sta = (p.get("PARCEL_STATUS_LABEL") or "").lower()
+
+        # Parcel matches if it matches ANY of the specified filter groups
+        if categories and cat in categories:
+            matched.append(str(p.get("PARCEL_ID")))
+        elif subtypes and sub in subtypes:
+            matched.append(str(p.get("PARCEL_ID")))
+        elif details and det in details:
+            matched.append(str(p.get("PARCEL_ID")))
+        elif statuses and sta in statuses:
+            matched.append(str(p.get("PARCEL_ID")))
+
+    return matched
 
 
 # =============================================================================

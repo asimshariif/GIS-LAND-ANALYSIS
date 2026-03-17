@@ -111,6 +111,21 @@ export default function App() {
     setIsDrawerOpen(true);
   }, []);
 
+  // Handle NL query result — highlight matching parcels on the map
+  const handleNlQueryResult = useCallback((matchingParcelIds) => {
+    setHighlightedObjectIds(matchingParcelIds);
+    setActiveCategory(null);
+    // Build queriedParcels from the matching IDs for the drawer
+    const allParcels = selectionSummary?.parcels || [];
+    const idSet = new Set(matchingParcelIds.map(String));
+    const matched = allParcels.filter(p => idSet.has(String(p.PARCEL_ID)));
+    if (matched.length > 0) {
+      setQueriedParcels(matched);
+      setDrawerMode('query');
+      setIsDrawerOpen(true);
+    }
+  }, [selectionSummary]);
+
   // Handle parcel click from map
   const handleParcelClick = useCallback(async (objectId) => {
     try {
@@ -253,6 +268,7 @@ export default function App() {
           selectedObjectIds={selectedObjectIds}
           queriedParcels={queriedParcels}
           onDropdownFilter={handleDropdownFilter}
+          onNlQueryResult={handleNlQueryResult}
         />
       )}
 

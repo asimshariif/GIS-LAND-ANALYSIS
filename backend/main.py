@@ -171,11 +171,15 @@ def query_category(req: CategoryQueryRequest):
 def query_natural_language(req: NLQueryRequest):
     """Answer a natural language question about the selected parcels."""
     try:
-        answer = answer_nl_query(
+        result = answer_nl_query(
             question=req.question,
             parcels_summary=req.selection_summary,
         )
-        return {"answer": answer, "question": req.question}
+        return {
+            "answer": result["answer"],
+            "question": req.question,
+            "matching_parcel_ids": result.get("matching_parcel_ids", []),
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

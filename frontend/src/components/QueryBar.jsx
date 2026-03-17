@@ -23,6 +23,7 @@ export default function QueryBar({
   selectedObjectIds,
   queriedParcels,
   onDropdownFilter,
+  onNlQueryResult,
 }) {
   const [filters, setFilters] = useState({});
   const [openDropdown, setOpenDropdown] = useState(null);
@@ -102,6 +103,10 @@ export default function QueryBar({
     try {
       const result = await queryNaturalLanguage(nlQuery.trim(), selectionSummary);
       setNlAnswer(result.answer || 'No answer received.');
+      // Highlight matching parcels on the map
+      if (onNlQueryResult && result.matching_parcel_ids?.length > 0) {
+        onNlQueryResult(result.matching_parcel_ids);
+      }
     } catch (err) {
       setNlAnswer('Failed to get answer. Please try again.');
     } finally {
