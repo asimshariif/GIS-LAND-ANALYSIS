@@ -35,8 +35,8 @@ export default function ReportViewer({
     if (!selectionData) return;
     setDownloadingPdf(true);
     try {
-      const response = await generatePdfReport(selectionData);
-      const url = window.URL.createObjectURL(new Blob([response.data], { type: 'application/pdf' }));
+      const blob = await generatePdfReport(selectionData);
+      const url = window.URL.createObjectURL(blob instanceof Blob ? blob : new Blob([blob], { type: 'application/pdf' }));
       const link = document.createElement('a');
       link.href = url;
       link.setAttribute('download', `land_analysis_report_${Date.now()}.pdf`);
@@ -205,8 +205,8 @@ export default function ReportViewer({
                 expanded={expandedSections.insights}
                 onToggle={() => toggleSection('insights')}
               >
-                {reportData?.report ? (
-                  <div style={styles.reportText}>{reportData.report}</div>
+                {reportData?.report_text ? (
+                  <div style={styles.reportText}>{reportData.report_text}</div>
                 ) : (
                   <div style={styles.noReport}>No AI insights available for this selection.</div>
                 )}

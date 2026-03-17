@@ -1,7 +1,7 @@
 import React from 'react';
-import { Pentagon, Square, Trash2, MousePointer2 } from 'lucide-react';
+import { Pentagon, Square, Trash2 } from 'lucide-react';
 
-export default function LeftToolbar({ drawMode, onDrawModeChange, onClearSelection, hasSelection, queryMode, onQueryModeToggle }) {
+export default function LeftToolbar({ drawMode, onDrawModeChange, onClearSelection, hasSelection }) {
   const tools = [
     { id: 'polygon', icon: Pentagon, label: 'Draw Polygon' },
     { id: 'rectangle', icon: Square, label: 'Draw Rectangle' },
@@ -25,7 +25,7 @@ export default function LeftToolbar({ drawMode, onDrawModeChange, onClearSelecti
 
       <div style={styles.separator} />
 
-      {/* Clear */}
+      {/* Clear Selection & Polygon */}
       <div style={styles.group}>
         <ToolButton
           label="Clear Selection"
@@ -34,20 +34,6 @@ export default function LeftToolbar({ drawMode, onDrawModeChange, onClearSelecti
           onClick={onClearSelection}
         >
           <Trash2 size={17} />
-        </ToolButton>
-      </div>
-
-      <div style={styles.separator} />
-
-      {/* Query mode */}
-      <div style={styles.group}>
-        <ToolButton
-          label="Query Mode"
-          active={queryMode}
-          disabled={!hasSelection}
-          onClick={onQueryModeToggle}
-        >
-          <MousePointer2 size={17} />
         </ToolButton>
       </div>
     </div>

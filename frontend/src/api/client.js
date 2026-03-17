@@ -64,6 +64,14 @@ export const queryCategory = async (category, selectedObjectIds) => {
   return response.data;
 };
 
+export const queryNaturalLanguage = async (question, selectionSummary) => {
+  const response = await apiClient.post('/query/nl', {
+    question,
+    selection_summary: selectionSummary,
+  });
+  return response.data;
+};
+
 // ============================================================================
 // Capacity Calculation Endpoints
 // ============================================================================
@@ -97,6 +105,13 @@ export const generatePdfReport = async (selectionSummary, extraContext = '') => 
   const response = await apiClient.post('/report/pdf', {
     selection_summary: selectionSummary,
     extra_context: extraContext,
+  }, { responseType: 'blob' });
+  return response.data;
+};
+
+export const exportShapefile = async (selectedObjectIds) => {
+  const response = await apiClient.post('/export/shapefile', {
+    selected_objectids: selectedObjectIds,
   }, { responseType: 'blob' });
   return response.data;
 };

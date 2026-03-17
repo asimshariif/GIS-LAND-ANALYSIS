@@ -38,7 +38,7 @@ function FlyToHandler({ zoomTarget }) {
 }
 
 // DrawControl wrapper to handle mode changes
-function DrawControlWrapper({ drawMode, onDrawComplete, onClearLayers }) {
+function DrawControlWrapper({ drawMode, onDrawComplete, clearTrigger }) {
 
   const map = useMap();
   const featureGroupRef = useRef();
@@ -98,10 +98,10 @@ function DrawControlWrapper({ drawMode, onDrawComplete, onClearLayers }) {
 
   // Handle clear from parent
   useEffect(() => {
-    if (onClearLayers && featureGroupRef.current) {
-      // This will be called when parent requests clear
+    if (clearTrigger && featureGroupRef.current) {
+      featureGroupRef.current.clearLayers();
     }
-  }, [onClearLayers]);
+  }, [clearTrigger]);
 
   return (
     <FeatureGroup ref={featureGroupRef}>
@@ -217,11 +217,19 @@ export default function MapView({
   onParcelClick,
   selectedObjectIds,
   zoomTarget,
+  clearTrigger,
 }) {
   const mapRef = useRef();
   const [parcels, setParcels] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [drawnPolygon, setDrawnPolygon] = useState(null);
+
+  // Clear drawn polygon when clearTrigger changes
+  useEffect(() => {
+    if (clearTrigger) {
+      setDrawnPolygon(null);
+    }
+  }, [clearTrigger]);
 
   // Load parcels on mount
   useEffect(() => {
@@ -292,6 +300,7 @@ export default function MapView({
         <DrawControlWrapper
           drawMode={drawMode}
           onDrawComplete={handleDrawComplete}
+          clearTrigger={clearTrigger}
         />
 
         {/* Parcel Markers */}

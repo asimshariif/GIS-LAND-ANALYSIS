@@ -3,16 +3,21 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 import io
+import tempfile
+import zipfile
+import os
 
 from backend.models import (
     # New models
     PolygonSelectRequest,
     BBoxSelectRequest,
     CategoryQueryRequest,
+    NLQueryRequest,
     MosqueCapacityRequest,
     CommercialCapacityRequest,
     ReportRequest,
     ReportResponse,
+    ShapefileExportRequest,
     # Legacy models
     BBoxRequest,
     PolygonRequest,
@@ -37,7 +42,7 @@ from backend.spatial import (
     analyze_polygon,
     analyze_parcel_set,
 )
-from backend.llm_service import generate_selection_report
+from backend.llm_service import generate_selection_report, answer_nl_query
 from backend.report_gen import generate_pdf_report
 
 app = FastAPI(title="GIS Land Analysis API", version="2.0.0")
@@ -162,6 +167,17 @@ def query_category(req: CategoryQueryRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.post("/query/nl")
+def query_natural_language(req: NLQueryRequest):
+    """Answer a natural language question about the selected parcels."""
+    try:
+        answer = answer_nl_query(
+            question=req.question,
+            parcels_summary=req.selection_summary,
+        )
+        return {"answer": answer, "question": req.question}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 # =============================================================================
 # Capacity Calculation Endpoints
@@ -239,6 +255,56 @@ def generate_pdf(req: ReportRequest):
 # =============================================================================
 # Legacy Endpoints (backward compatibility)
 # =============================================================================
+
+
+@app.post("/export/shapefile")
+def export_shapefile(req: ShapefileExportRequest):
+    """Export selected parcels as a zipped shapefile."""
+    try:
+        import geopandas as gpd
+        from shapely.geometry import Point
+
+        parcels = get_parcels_by_objectids(req.selected_objectids)
+        if not parcels:
+            raise HTTPException(status_code=404, detail="No parcels found for export")
+
+        rows = []
+        for p in parcels:
+            lon = p.get("REPR_LON")
+            lat = p.get("REPR_LAT")
+            geom = Point(float(lon), float(lat)) if lon and lat else None
+            rows.append({
+                "OBJECTID": p.get("OBJECTID") or p.get("PARCEL_ID"),
+                "CATEGORY": p.get("LANDUSE_CATEGORY", ""),
+                "SUBTYPE_EN": p.get("SUBTYPE_LABEL_EN", ""),
+                "AREA_M2": p.get("AREA_M2", 0),
+                "STATUS": p.get("PARCEL_STATUS_LABEL", ""),
+                "BLOCK_ID": p.get("BLOCK_NO") or p.get("BLOCK_ID", ""),
+                "geometry": geom,
+            })
+
+        gdf = gpd.GeoDataFrame(rows, crs="EPSG:4326")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            shp_path = os.path.join(tmpdir, "parcels.shp")
+            gdf.to_file(shp_path)
+
+            zip_buf = io.BytesIO()
+            with zipfile.ZipFile(zip_buf, "w", zipfile.ZIP_DEFLATED) as zf:
+                for fname in os.listdir(tmpdir):
+                    fpath = os.path.join(tmpdir, fname)
+                    zf.write(fpath, fname)
+            zip_buf.seek(0)
+
+        return StreamingResponse(
+            zip_buf,
+            media_type="application/zip",
+            headers={"Content-Disposition": "attachment; filename=parcels_export.zip"},
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/analyze/bbox", response_model=AnalysisResponse)

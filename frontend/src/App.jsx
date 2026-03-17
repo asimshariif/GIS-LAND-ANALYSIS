@@ -22,9 +22,9 @@ export default function App() {
   
   // UI state
   const [drawMode, setDrawMode] = useState(null); // 'polygon' | 'rectangle' | null
-  const [queryMode, setQueryMode] = useState(false);
   const [isBottomPanelExpanded, setIsBottomPanelExpanded] = useState(true);
   const [activeTab, setActiveTab] = useState('summary'); // 'summary' | 'analysis'
+  const [clearTrigger, setClearTrigger] = useState(0); // bumped to tell MapView to clear polygon
   
   // Drawer state
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
@@ -64,6 +64,7 @@ export default function App() {
     setIsBottomPanelExpanded(false);
     setIsDrawerOpen(false);
     setDrawMode(null);
+    setClearTrigger(prev => prev + 1); // tell MapView to clear drawn polygon
   }, []);
 
   // Handle category query from QueryBar or BottomPanel
@@ -90,6 +91,22 @@ export default function App() {
       console.error('Failed to query category:', e);
     }
   }, [activeCategory, selectedObjectIds]);
+
+  // Handle dropdown filter from QueryBar
+  const handleDropdownFilter = useCallback((filteredParcels) => {
+    if (!filteredParcels) {
+      // Clear filter — reset highlights
+      setHighlightedObjectIds([]);
+      setQueriedParcels([]);
+      setIsDrawerOpen(false);
+      return;
+    }
+    const objectIds = filteredParcels.map(p => p.OBJECTID || p.PARCEL_ID);
+    setHighlightedObjectIds(objectIds);
+    setQueriedParcels(filteredParcels);
+    setDrawerMode('query');
+    setIsDrawerOpen(true);
+  }, []);
 
   // Handle parcel click from map
   const handleParcelClick = useCallback(async (objectId) => {
@@ -144,11 +161,6 @@ export default function App() {
   // Handle draw mode change
   const handleDrawModeChange = useCallback((mode) => {
     setDrawMode(prev => prev === mode ? null : mode);
-  }, []);
-
-  // Handle query mode toggle
-  const handleQueryModeToggle = useCallback(() => {
-    setQueryMode(prev => !prev);
   }, []);
 
   // Handle zoom to block from AnalysisPanel
@@ -210,6 +222,7 @@ export default function App() {
         onParcelClick={handleParcelClick}
         selectedObjectIds={selectedObjectIds}
         zoomTarget={zoomTarget}
+        clearTrigger={clearTrigger}
       />
 
       {/* Top Bar */}
@@ -217,6 +230,7 @@ export default function App() {
         selectionSummary={selectionSummary}
         onGenerateReport={handleGenerateReport}
         isGeneratingReport={isGeneratingReport}
+        selectedObjectIds={selectedObjectIds}
       />
 
       {/* Left Toolbar */}
@@ -225,8 +239,6 @@ export default function App() {
         onDrawModeChange={handleDrawModeChange}
         onClearSelection={handleClearSelection}
         hasSelection={selectedObjectIds.length > 0}
-        queryMode={queryMode}
-        onQueryModeToggle={handleQueryModeToggle}
       />
 
       {/* Query Bar - only visible when selection exists */}
@@ -237,6 +249,7 @@ export default function App() {
           onCategorySelect={handleCategorySelect}
           selectedObjectIds={selectedObjectIds}
           queriedParcels={queriedParcels}
+          onDropdownFilter={handleDropdownFilter}
         />
       )}
 

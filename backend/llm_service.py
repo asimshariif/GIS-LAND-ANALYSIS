@@ -223,6 +223,158 @@ Do NOT add any sections beyond the five listed above.
 
 
 # =============================================================================
+# Natural Language Query
+# =============================================================================
+
+
+def answer_nl_query(
+    question: str,
+    parcels_summary: dict,
+    provider: str = LLM_PROVIDER,
+) -> str:
+    """Answer a natural language question about parcels in a selection.
+
+    Args:
+        question: The user's question in natural language.
+        parcels_summary: Compact summary of the parcels (counts, areas, categories).
+        provider: LLM provider to use.
+
+    Returns:
+        Answer text.  If the data cannot answer the question the model must
+        say so rather than fabricate information.
+    """
+    prompt = _build_nl_query_prompt(question, parcels_summary)
+    return call_llm(prompt, provider)
+
+
+def _build_nl_query_prompt(question: str, summary: dict) -> str:
+    total_parcels = summary.get("total_parcels", 0)
+    total_area = summary.get("total_area_m2", 0)
+    vacant = summary.get("vacant_count", 0)
+    developed = summary.get("developed_count", 0)
+    breakdown = summary.get("category_breakdown", {})
+    religious_capacity = summary.get("total_religious_capacity", 0)
+    shops_estimated = summary.get("total_shops_estimated", 0)
+    commercial_area = summary.get("commercial_total_area_m2", 0)
+    non_commercial_area = summary.get("non_commercial_total_area_m2", 0)
+
+    cat_lines = "\n".join(
+        f"  - {cat}: {cnt} parcels"
+        for cat, cnt in sorted(breakdown.items(), key=lambda x: -x[1])
+    ) or "  No category data available"
+
+    # Build rich breakdowns from parcels list
+    parcels = summary.get("parcels", [])
+    subtype_counts: dict[str, int] = {}
+    detail_counts: dict[str, int] = {}
+    status_counts: dict[str, int] = {}
+    commercial_count = 0
+    non_commercial_count = 0
+    floor_counts: dict[str, int] = {}
+    areas: list[float] = []
+
+    for p in parcels:
+        # Subtype & Detail
+        st = p.get("SUBTYPE_LABEL_EN") or p.get("SUBTYPE") or "Unknown"
+        dt = p.get("DETAIL_LABEL_EN") or p.get("DETAILSLANDUSE") or "Unknown"
+        subtype_counts[st] = subtype_counts.get(st, 0) + 1
+        detail_counts[dt] = detail_counts.get(dt, 0) + 1
+
+        # Development / Parcel status
+        status = p.get("PARCEL_STATUS_LABEL") or "Unknown"
+        status_counts[status] = status_counts.get(status, 0) + 1
+
+        # Commercial vs Non-Commercial
+        is_comm = p.get("IS_COMMERCIAL")
+        if is_comm == 1 or is_comm is True or str(is_comm).lower() == "true":
+            commercial_count += 1
+        else:
+            non_commercial_count += 1
+
+        # Floors
+        floors = p.get("NOOFFLOORS")
+        if floors and float(floors) > 0:
+            floor_label = f"{int(float(floors))} floor(s)"
+            floor_counts[floor_label] = floor_counts.get(floor_label, 0) + 1
+
+        # Area
+        area = float(p.get("AREA_M2") or 0)
+        if area > 0:
+            areas.append(area)
+
+    subtype_lines = "\n".join(
+        f"  - {st}: {cnt} parcels"
+        for st, cnt in sorted(subtype_counts.items(), key=lambda x: -x[1])
+    ) or "  No subtype data available"
+
+    detail_lines = "\n".join(
+        f"  - {dt}: {cnt} parcels"
+        for dt, cnt in sorted(detail_counts.items(), key=lambda x: -x[1])
+    ) or "  No detail data available"
+
+    status_lines = "\n".join(
+        f"  - {s}: {cnt} parcels"
+        for s, cnt in sorted(status_counts.items(), key=lambda x: -x[1])
+    ) or "  No status data available"
+
+    floor_lines = "\n".join(
+        f"  - {fl}: {cnt} parcels"
+        for fl, cnt in sorted(floor_counts.items(), key=lambda x: -x[1])
+    ) or "  No floor data available"
+
+    area_stats = ""
+    if areas:
+        area_stats = (
+            f"  Smallest Parcel: {min(areas):,.0f} m²\n"
+            f"  Largest Parcel: {max(areas):,.0f} m²\n"
+            f"  Average Parcel Size: {sum(areas) / len(areas):,.0f} m²"
+        )
+    else:
+        area_stats = "  No area data available"
+
+    return f"""You are a GIS data assistant. Answer the user's question using ONLY the data provided below.
+If the data does not contain information to answer the question, say so honestly — do NOT make up data.
+Be concise and factual. Use numbers when available.
+
+=== SELECTION DATA ===
+Total Parcels: {total_parcels}
+Total Area: {total_area:,.0f} m²
+
+Development Status:
+{status_lines}
+
+Commercial: {commercial_count} parcels ({commercial_area:,.0f} m²)
+Non-Commercial: {non_commercial_count} parcels ({non_commercial_area:,.0f} m²)
+
+Estimated Religious/Mosque Capacity: {religious_capacity:,} worshippers
+Estimated Commercial Shops: {shops_estimated:,}
+
+Land Use Categories:
+{cat_lines}
+
+Land Use Subtypes:
+{subtype_lines}
+
+Detailed Land Use:
+{detail_lines}
+
+Building Floors Distribution:
+{floor_lines}
+
+Area Statistics:
+{area_stats}
+
+=== USER QUESTION ===
+{question}
+
+=== INSTRUCTIONS ===
+Answer the question directly. If the answer can be derived from the data, provide it with numbers.
+If the data does not have the information, respond: "This information is not available in the current selection data."
+Do not hallucinate or invent numbers.
+"""
+
+
+# =============================================================================
 # Legacy Functions (backward compatibility)
 # =============================================================================
 

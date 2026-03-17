@@ -73,6 +73,15 @@ class CategoryQueryRequest(BaseModel):
         return v
 
 
+class NLQueryRequest(BaseModel):
+    """Request to ask a natural language question about a selection."""
+    question: str = Field(..., min_length=3, max_length=1000, description="Natural language question")
+    selection_summary: Dict[str, Any] = Field(
+        ...,
+        description="The selection summary object from polygon/bbox selection"
+    )
+
+
 # =============================================================================
 # Capacity Calculation Request Models
 # =============================================================================
@@ -100,9 +109,9 @@ class CommercialCapacityRequest(BaseModel):
 
 class ReportRequest(BaseModel):
     """Request to generate an LLM or PDF report for a selection."""
-    selected_objectids: List[int] = Field(
-        ...,
-        description="List of PARCEL_IDs in the selection"
+    selected_objectids: Optional[List[int]] = Field(
+        default=None,
+        description="List of PARCEL_IDs in the selection (optional)"
     )
     selection_summary: Dict[str, Any] = Field(
         ...,
@@ -111,6 +120,15 @@ class ReportRequest(BaseModel):
     extra_context: Optional[str] = Field(
         default=None,
         description="Optional additional context for the report"
+    )
+
+
+class ShapefileExportRequest(BaseModel):
+    """Request to export selected parcels as shapefile."""
+    selected_objectids: List[int] = Field(
+        ...,
+        min_length=1,
+        description="List of PARCEL_IDs to export"
     )
 
 

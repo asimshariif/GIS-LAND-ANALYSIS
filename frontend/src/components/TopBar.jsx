@@ -1,8 +1,30 @@
-import React from 'react';
-import { Layers, FileText, Loader2 } from 'lucide-react';
+import React, { useState } from 'react';
+import { Layers, FileText, Loader2, Download } from 'lucide-react';
+import { exportShapefile } from '../api/client';
 
-export default function TopBar({ selectionSummary, onGenerateReport, isGeneratingReport }) {
+export default function TopBar({ selectionSummary, onGenerateReport, isGeneratingReport, selectedObjectIds }) {
   const parcelCount = selectionSummary?.total_parcels || 0;
+  const [exporting, setExporting] = useState(false);
+
+  const handleExportShapefile = async () => {
+    if (!selectedObjectIds?.length || exporting) return;
+    setExporting(true);
+    try {
+      const blob = await exportShapefile(selectedObjectIds);
+      const url = window.URL.createObjectURL(blob instanceof Blob ? blob : new Blob([blob], { type: 'application/zip' }));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `parcels_export_${Date.now()}.zip`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('Failed to export shapefile', err);
+    } finally {
+      setExporting(false);
+    }
+  };
 
   return (
     <div style={styles.wrapper}>
@@ -49,9 +71,27 @@ export default function TopBar({ selectionSummary, onGenerateReport, isGeneratin
           ) : (
             <>
               <FileText size={13} />
-              <span>Generate Report</span>
+              <span>Report</span>
             </>
           )}
+        </button>
+
+        {/* Export Shapefile Button */}
+        <button
+          style={{
+            ...styles.exportBtn,
+            ...(parcelCount === 0 || exporting ? styles.reportBtnDisabled : {}),
+          }}
+          onClick={handleExportShapefile}
+          disabled={parcelCount === 0 || exporting}
+          title="Export as Shapefile"
+        >
+          {exporting ? (
+            <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} />
+          ) : (
+            <Download size={13} />
+          )}
+          <span>{exporting ? 'Exporting…' : 'Export'}</span>
         </button>
       </header>
     </div>
@@ -168,6 +208,28 @@ const styles = {
     whiteSpace: 'nowrap',
   },
   reportBtnDisabled: {
+    background: 'rgba(0,0,0,0.07)',
+    color: 'var(--text-tertiary)',
+    boxShadow: 'none',
+    cursor: 'not-allowed',
+  },
+  exportBtn: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 6,
+    padding: '8px 17px',
+    borderRadius: 999,
+    background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+    color: 'white',
+    fontSize: '0.81rem',
+    fontWeight: 600,
+    cursor: 'pointer',
+    transition: 'all var(--transition-fast)',
+    border: 'none',
+    boxShadow: '0 2px 10px rgba(16,185,129,0.42)',
+    whiteSpace: 'nowrap',
+  },
+  exportBtnDisabled: {
     background: 'rgba(0,0,0,0.07)',
     color: 'var(--text-tertiary)',
     boxShadow: 'none',
