@@ -76,7 +76,8 @@ function DrawControlWrapper({ drawMode, onDrawComplete, clearTrigger }) {
     
     if (featureGroupRef.current) {
       featureGroupRef.current.clearLayers();
-      featureGroupRef.current.addLayer(layer);
+      // Don't keep the drawn layer — we render our own non-interactive
+      // <Polygon> overlay instead, so marker clicks aren't blocked.
     }
 
     if (e.layerType === 'rectangle') {
@@ -284,6 +285,14 @@ export default function MapView({
       let result;
       if (type === 'bbox') {
         result = await selectBBox(data.min_lat, data.max_lat, data.min_lon, data.max_lon);
+        // Store as polygon for boundary overlay
+        setDrawnPolygon([
+          [data.min_lat, data.min_lon],
+          [data.min_lat, data.max_lon],
+          [data.max_lat, data.max_lon],
+          [data.max_lat, data.min_lon],
+          [data.min_lat, data.min_lon],
+        ]);
       } else if (type === 'polygon') {
         result = await selectPolygon(data);
         setDrawnPolygon(data);
@@ -345,15 +354,17 @@ export default function MapView({
           />
         )}
 
-        {/* Drawn Polygon Overlay */}
+        {/* Drawn Polygon Overlay — boundary only, non-interactive */}
         {drawnPolygon && (
           <Polygon
             positions={drawnPolygon}
+            interactive={false}
             pathOptions={{
               color: '#3b82f6',
-              fillColor: '#3b82f6',
-              fillOpacity: 0.15,
-              weight: 2,
+              fillColor: 'transparent',
+              fillOpacity: 0,
+              weight: 2.5,
+              dashArray: '6, 4',
             }}
           />
         )}

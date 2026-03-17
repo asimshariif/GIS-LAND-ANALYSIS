@@ -1,6 +1,6 @@
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useRef } from 'react';
 import { ChevronDown, X, Send, Loader, MessageCircle, Filter } from 'lucide-react';
-import { queryNaturalLanguage } from '../api/client';
+import { streamNaturalLanguageQuery } from '../api/client';
 
 const CAT_COLORS = {
   Residential: '#10b981', Commercial: '#f59e0b', Religious: '#3b82f6',
@@ -29,7 +29,7 @@ export default function QueryBar({
   const [openDropdown, setOpenDropdown] = useState(null);
   const [nlQuery, setNlQuery] = useState('');
   const [nlAnswer, setNlAnswer] = useState('');
-  const [nlLoading, setNlLoading] = useState(false);
+  const rawAnswerRef = useRef('');  const [nlLoading, setNlLoading] = useState(false);
   const [showNlInput, setShowNlInput] = useState(false);
 
   const categories = useMemo(() => {
@@ -71,7 +71,7 @@ export default function QueryBar({
     setFilters(next);
     setOpenDropdown(null);
 
-    // Notify parent with filtered parcel OBJECTIDs
+    // Notify parent with filtered parcel OBJECTIDs and a human-readable description
     if (onDropdownFilter) {
       if (Object.keys(next).length === 0) {
         onDropdownFilter(null); // clear filter
@@ -86,7 +86,12 @@ export default function QueryBar({
           }
           return true;
         });
-        onDropdownFilter(filtered);
+        const descParts = Object.entries(next).map(([fk, fv]) => {
+          const field = FILTER_FIELDS.find(f => f.key === fk);
+          return `${field?.label || fk}: ${fv}`;
+        });
+        const filterDescription = `Dropdown filter — ${descParts.join(', ')}`;
+        onDropdownFilter(filtered, filterDescription);
       }
     }
   }, [filters, allParcels, onDropdownFilter]);
@@ -100,13 +105,26 @@ export default function QueryBar({
     if (!nlQuery.trim() || !selectionSummary || nlLoading) return;
     setNlLoading(true);
     setNlAnswer('');
+    rawAnswerRef.current = '';
     try {
-      const result = await queryNaturalLanguage(nlQuery.trim(), selectionSummary);
-      setNlAnswer(result.answer || 'No answer received.');
-      // Highlight matching parcels on the map
-      if (onNlQueryResult && result.matching_parcel_ids?.length > 0) {
-        onNlQueryResult(result.matching_parcel_ids);
-      }
+      await streamNaturalLanguageQuery(
+        nlQuery.trim(),
+        selectionSummary,
+        (token) => {
+          rawAnswerRef.current += token;
+          // Always display only the text before any ```json block
+          const jsonIdx = rawAnswerRef.current.indexOf('```json');
+          const display = jsonIdx !== -1
+            ? rawAnswerRef.current.slice(0, jsonIdx)
+            : rawAnswerRef.current;
+          setNlAnswer(display.trimEnd());
+        },
+        (result) => {
+          if (onNlQueryResult && result.matching_parcel_ids?.length > 0) {
+            onNlQueryResult(result.matching_parcel_ids, nlQuery.trim());
+          }
+        },
+      );
     } catch (err) {
       setNlAnswer('Failed to get answer. Please try again.');
     } finally {
@@ -265,6 +283,7 @@ const styles = {
     flexDirection: 'column',
     alignItems: 'center',
     gap: 6,
+    pointerEvents: 'none',
   },
   capsule: {
     display: 'inline-flex',
@@ -280,6 +299,7 @@ const styles = {
     maxWidth: '90vw',
     flexWrap: 'nowrap',
     overflow: 'visible',
+    pointerEvents: 'auto',
   },
   pills: {
     display: 'flex',
@@ -430,6 +450,7 @@ const styles = {
     gap: 6,
     width: '100%',
     maxWidth: 560,
+    pointerEvents: 'auto',
   },
   nlInputBox: {
     display: 'flex',

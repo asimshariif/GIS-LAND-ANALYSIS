@@ -72,6 +72,57 @@ export const queryNaturalLanguage = async (question, selectionSummary) => {
   return response.data;
 };
 
+/**
+ * Stream a natural language query answer via SSE.
+ * @param {string} question
+ * @param {object} selectionSummary
+ * @param {function} onToken - Called with each text chunk as it arrives
+ * @param {function} onDone - Called with { matching_parcel_ids } when complete
+ * @returns {Promise<void>}
+ */
+export const streamNaturalLanguageQuery = async (question, selectionSummary, onToken, onDone) => {
+  const response = await fetch(`${API_BASE_URL}/query/nl/stream`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      question,
+      selection_summary: selectionSummary,
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Stream request failed: ${response.status}`);
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split('\n');
+    buffer = lines.pop(); // keep incomplete line in buffer
+
+    for (const line of lines) {
+      if (line.startsWith('data: ')) {
+        try {
+          const payload = JSON.parse(line.slice(6));
+          if (payload.type === 'token') {
+            onToken(payload.content);
+          } else if (payload.type === 'done') {
+            onDone({ matching_parcel_ids: payload.matching_parcel_ids || [] });
+          }
+        } catch {
+          // skip malformed lines
+        }
+      }
+    }
+  }
+};
+
 // ============================================================================
 // Capacity Calculation Endpoints
 // ============================================================================
@@ -93,19 +144,17 @@ export const calculateCommercialCapacity = async (objectId, shopSizeM2) => {
 // Report Endpoints
 // ============================================================================
 
-export const generateTextReport = async (selectionSummary, extraContext = '') => {
-  const response = await apiClient.post('/report/text', {
-    selection_summary: selectionSummary,
-    extra_context: extraContext,
-  });
+export const generateTextReport = async (reportPayload) => {
+  // reportPayload should be the full report request object:
+  // { selection_summary, filtered_summary?, applied_filters?, capacity_calculations?,
+  //   report_type?, report_title?, extra_context? }
+  const response = await apiClient.post('/report/text', reportPayload);
   return response.data;
 };
 
-export const generatePdfReport = async (selectionSummary, extraContext = '') => {
-  const response = await apiClient.post('/report/pdf', {
-    selection_summary: selectionSummary,
-    extra_context: extraContext,
-  }, { responseType: 'blob' });
+export const generatePdfReport = async (reportPayload) => {
+  // Same full payload as generateTextReport
+  const response = await apiClient.post('/report/pdf', reportPayload, { responseType: 'blob' });
   return response.data;
 };
 

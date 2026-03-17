@@ -1,8 +1,9 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { 
   X, ArrowLeft, Calculator, Ruler, MapPin, 
-  Users, Store, ChevronRight, Building2
+  Users, Store, ChevronRight, Building2, Loader
 } from 'lucide-react';
+import { calculateMosqueCapacity, calculateCommercialCapacity } from '../api/client';
 
 // Only actual mosques should get the worshipper capacity calculator,
 // not imam/muezzin residences which are also under Religious category.
@@ -31,6 +32,7 @@ export default function ParcelDetailDrawer({
   onParcelSelect,
   onHighlightParcel,
   onBackToQuery,
+  onCapacityCalculated, // called when a capacity calculation result is ready
 }) {
   const [calculatorMode, setCalculatorMode] = useState(null); // 'religious' | 'commercial'
   const [shopSize, setShopSize] = useState(120);
@@ -93,7 +95,7 @@ export default function ParcelDetailDrawer({
       {/* Content */}
       <div style={styles.content}>
         {calculatorMode === 'religious' && selectedParcel && (
-          <MosqueCalculator parcel={selectedParcel} />
+          <MosqueCalculator parcel={selectedParcel} onCalculated={onCapacityCalculated} />
         )}
         
         {calculatorMode === 'commercial' && selectedParcel && (
@@ -101,6 +103,7 @@ export default function ParcelDetailDrawer({
             parcel={selectedParcel} 
             shopSize={shopSize}
             setShopSize={setShopSize}
+            onCalculated={onCapacityCalculated}
           />
         )}
         
@@ -265,10 +268,46 @@ function ParcelDetail({ parcel, onCalculate }) {
 }
 
 // Religious Facility Calculator Component
-function MosqueCalculator({ parcel }) {
+function MosqueCalculator({ parcel, onCalculated }) {
+  const [calcResult, setCalcResult] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
   const area = Number(parcel.AREA_M2) || 0;
-  const capacity = Math.floor(area / 1.2);
   const isVacant = (parcel.PARCEL_STATUS_LABEL || parcel.PARCEL_STATUS_LABEL_EN || '').toLowerCase().includes('vacant');
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    calculateMosqueCapacity(parcel.PARCEL_ID)
+      .then(result => {
+        if (!cancelled) {
+          setCalcResult(result);
+          // Notify parent so it can be included in the report
+          if (onCalculated) {
+            onCalculated({
+              type: 'mosque',
+              parcel_id: parcel.PARCEL_ID,
+              subtype: parcel.SUBTYPE_LABEL_EN || 'Religious Facility',
+              area_m2: area,
+              capacity_worshippers: result.capacity_worshippers ?? 0,
+              rate_m2_per_worshipper: result.rate_m2_per_worshipper ?? 8.0,
+              floors_estimated: result.floors_estimated ?? 1,
+            });
+          }
+        }
+      })
+      .catch(err => {
+        if (!cancelled) setError('Failed to calculate capacity');
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [parcel.PARCEL_ID]);
+
+  const capacity = calcResult?.capacity_worshippers ?? 0;
+  const rate = calcResult?.rate_m2_per_worshipper ?? 8.0;
 
   return (
     <div style={styles.calculator}>
@@ -280,63 +319,53 @@ function MosqueCalculator({ parcel }) {
         </div>
       </div>
 
-      <div style={styles.formulaBox}>
-        <div style={styles.formulaTitle}>Capacity Formula</div>
-        <div style={styles.formula}>
-          <span>{area.toLocaleString()} m²</span>
-          <span style={styles.formulaOperator}>÷</span>
-          <span>1.2 m²/worshipper</span>
-          <span style={styles.formulaOperator}>=</span>
-          <span style={styles.formulaResult}>{capacity.toLocaleString()}</span>
+      {loading ? (
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 32, gap: 8, color: 'var(--text-secondary)' }}>
+          <Loader size={18} style={{ animation: 'spin 1s linear infinite' }} />
+          <span>Calculating...</span>
         </div>
-      </div>
-
-      <div style={styles.resultBox}>
-        <div style={styles.resultValue}>{capacity.toLocaleString()}</div>
-        <div style={styles.resultLabel}>estimated worshippers</div>
-      </div>
-
-      <div style={styles.calcNote}>
-        Based on mosque prayer density of 1.2 m² per worshipper
-      </div>
-
-      <div style={styles.statusNote}>
-        <div style={{
-          ...styles.statusIndicator,
-          background: isVacant ? 'rgba(245, 158, 11, 0.2)' : 'rgba(16, 185, 129, 0.2)',
-        }}>
-          <span style={{ color: isVacant ? '#f59e0b' : '#10b981', fontWeight: 600 }}>
-            {isVacant ? 'Vacant Plot' : 'Developed'}
-          </span>
-          <span style={{ color: 'var(--text-secondary)', fontSize: '0.8rem' }}>
-            {isVacant 
-              ? 'Full capacity available for development'
-              : 'Existing mosque with current capacity'
-            }
-          </span>
-        </div>
-      </div>
-
-      {/* Comparison chart placeholder */}
-      <div style={styles.comparisonSection}>
-        <div style={styles.comparisonTitle}>Block Comparison</div>
-        <div style={styles.comparisonChart}>
-          <div style={styles.comparisonBar}>
-            <div style={styles.comparisonLabel}>This Mosque</div>
-            <div style={styles.barContainer}>
-              <div style={{ ...styles.bar, width: '100%', background: '#3b82f6' }} />
+      ) : error ? (
+        <div style={{ padding: 16, color: '#ef4444', textAlign: 'center' }}>{error}</div>
+      ) : (
+        <>
+          <div style={styles.formulaBox}>
+            <div style={styles.formulaTitle}>Capacity Formula</div>
+            <div style={styles.formula}>
+              <span>{area.toLocaleString()} m²</span>
+              <span style={styles.formulaOperator}>÷</span>
+              <span>{rate} m²/worshipper</span>
+              <span style={styles.formulaOperator}>=</span>
+              <span style={styles.formulaResult}>{capacity.toLocaleString()}</span>
             </div>
-            <div style={styles.barValue}>{capacity.toLocaleString()}</div>
           </div>
-          <div style={styles.comparisonBar}>
-            <div style={styles.comparisonLabel}>Block Avg.</div>
-            <div style={styles.barContainer}>
-              <div style={{ ...styles.bar, width: '60%', background: 'var(--panel-border)' }} />
+
+          <div style={styles.resultBox}>
+            <div style={styles.resultValue}>{capacity.toLocaleString()}</div>
+            <div style={styles.resultLabel}>estimated worshippers</div>
+          </div>
+
+          <div style={styles.calcNote}>
+            Based on mosque prayer density of {rate} m² per worshipper
+          </div>
+
+          <div style={styles.statusNote}>
+            <div style={{
+              ...styles.statusIndicator,
+              background: isVacant ? 'rgba(245, 158, 11, 0.2)' : 'rgba(16, 185, 129, 0.2)',
+            }}>
+              <span style={{ color: isVacant ? '#f59e0b' : '#10b981', fontWeight: 600 }}>
+                {isVacant ? 'Vacant Plot' : 'Developed'}
+              </span>
+              <span style={{ color: 'var(--text-secondary)', fontSize: '0.8rem' }}>
+                {isVacant 
+                  ? 'Full capacity available for development'
+                  : 'Existing mosque with current capacity'
+                }
+              </span>
             </div>
-            <div style={styles.barValue}>~{Math.floor(capacity * 0.6).toLocaleString()}</div>
           </div>
-        </div>
-      </div>
+        </>
+      )}
     </div>
   );
 }
@@ -355,14 +384,47 @@ function Church({ size, color }) {
 }
 
 // Commercial Calculator Component
-function CommercialCalculator({ parcel, shopSize, setShopSize }) {
+function CommercialCalculator({ parcel, shopSize, setShopSize, onCalculated }) {
   const area = Number(parcel.AREA_M2) || 0;
-  const estimatedShops = Math.floor(area / shopSize);
-  
-  // Preset calculations
-  const at60 = Math.floor(area / 60);
-  const at120 = Math.floor(area / 120);
-  const at200 = Math.floor(area / 200);
+  const [calcResult, setCalcResult] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+
+  // Fetch calculation from backend whenever shopSize changes (debounced)
+  useEffect(() => {
+    let cancelled = false;
+    const timeout = setTimeout(() => {
+      setLoading(true);
+      setError(null);
+      calculateCommercialCapacity(parcel.PARCEL_ID, shopSize)
+        .then(result => {
+          if (!cancelled) {
+            setCalcResult(result);
+            // Notify parent for report context
+            if (onCalculated) {
+              onCalculated({
+                type: 'commercial',
+                parcel_id: parcel.PARCEL_ID,
+                subtype: parcel.SUBTYPE_LABEL_EN || 'Commercial',
+                area_m2: area,
+                shops_estimated: result.shop_count ?? Math.floor(area / shopSize),
+                shop_size_m2: shopSize,
+                floors_estimated: result.floors_estimated ?? 1,
+              });
+            }
+          }
+        })
+        .catch(() => {
+          if (!cancelled) setError('Failed to calculate');
+        })
+        .finally(() => {
+          if (!cancelled) setLoading(false);
+        });
+    }, 300);
+    return () => { cancelled = true; clearTimeout(timeout); };
+  }, [parcel.PARCEL_ID, shopSize]);
+
+  const estimatedShops = calcResult?.shop_count ?? Math.floor(area / shopSize);
 
   return (
     <div style={styles.calculator}>
@@ -400,23 +462,33 @@ function CommercialCalculator({ parcel, shopSize, setShopSize }) {
       </div>
 
       <div style={styles.resultBox}>
-        <div style={styles.resultValue}>{estimatedShops.toLocaleString()}</div>
-        <div style={styles.resultLabel}>shops estimated</div>
+        {loading ? (
+          <Loader size={18} style={{ animation: 'spin 1s linear infinite', color: 'var(--text-secondary)' }} />
+        ) : (
+          <>
+            <div style={styles.resultValue}>{estimatedShops.toLocaleString()}</div>
+            <div style={styles.resultLabel}>shops estimated</div>
+          </>
+        )}
       </div>
+
+      {error && (
+        <div style={{ padding: 8, color: '#ef4444', fontSize: '0.8rem', textAlign: 'center' }}>{error}</div>
+      )}
 
       <div style={styles.presetComparisons}>
         <div style={styles.presetTitle}>Quick Comparisons</div>
         <div style={styles.presetGrid}>
           <div style={styles.presetItem} onClick={() => setShopSize(60)}>
-            <div style={styles.presetValue}>{at60}</div>
+            <div style={styles.presetValue}>{Math.floor(area / 60)}</div>
             <div style={styles.presetLabel}>at 60m²</div>
           </div>
           <div style={styles.presetItem} onClick={() => setShopSize(120)}>
-            <div style={styles.presetValue}>{at120}</div>
+            <div style={styles.presetValue}>{Math.floor(area / 120)}</div>
             <div style={styles.presetLabel}>at 120m²</div>
           </div>
           <div style={styles.presetItem} onClick={() => setShopSize(200)}>
-            <div style={styles.presetValue}>{at200}</div>
+            <div style={styles.presetValue}>{Math.floor(area / 200)}</div>
             <div style={styles.presetLabel}>at 200m²</div>
           </div>
         </div>

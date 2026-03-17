@@ -42,7 +42,7 @@ from backend.spatial import (
     analyze_polygon,
     analyze_parcel_set,
 )
-from backend.llm_service import generate_selection_report, answer_nl_query
+from backend.llm_service import generate_selection_report, answer_nl_query, stream_nl_query
 from backend.report_gen import generate_pdf_report
 
 app = FastAPI(title="GIS Land Analysis API", version="2.0.0")
@@ -183,6 +183,22 @@ def query_natural_language(req: NLQueryRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
+@app.post("/query/nl/stream")
+async def query_natural_language_stream(req: NLQueryRequest):
+    """Stream a natural language answer as Server-Sent Events."""
+    return StreamingResponse(
+        stream_nl_query(
+            question=req.question,
+            parcels_summary=req.selection_summary,
+        ),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
 # =============================================================================
 # Capacity Calculation Endpoints
 # =============================================================================
@@ -223,11 +239,16 @@ def calculate_commercial(req: CommercialCapacityRequest):
 
 @app.post("/report/text", response_model=ReportResponse)
 def generate_text_report(req: ReportRequest):
-    """Generate LLM report for a selection."""
+    """Generate LLM report for a selection, incorporating filters and capacity calcs."""
     try:
         report_text = generate_selection_report(
             selection_summary=req.selection_summary,
-            extra_context=req.extra_context
+            extra_context=req.extra_context,
+            filtered_summary=req.filtered_summary,
+            applied_filters=req.applied_filters,
+            capacity_calculations=req.capacity_calculations,
+            report_type=req.report_type,
+            report_title=req.report_title,
         )
         return ReportResponse(report_text=report_text)
     except Exception as e:
@@ -236,21 +257,33 @@ def generate_text_report(req: ReportRequest):
 
 @app.post("/report/pdf")
 def generate_pdf(req: ReportRequest):
-    """Generate PDF report for a selection."""
+    """Generate PDF report for a selection, incorporating filters and capacity calcs."""
     try:
-        # First generate the text report
+        # Generate narrative text
         report_text = generate_selection_report(
             selection_summary=req.selection_summary,
-            extra_context=req.extra_context
+            extra_context=req.extra_context,
+            filtered_summary=req.filtered_summary,
+            applied_filters=req.applied_filters,
+            capacity_calculations=req.capacity_calculations,
+            report_type=req.report_type,
+            report_title=req.report_title,
         )
-        
-        # Then generate PDF
-        pdf_bytes = generate_pdf_report(req.selection_summary, report_text)
-        
+
+        # Generate PDF with all session context
+        pdf_bytes = generate_pdf_report(
+            stats=req.selection_summary,
+            report_text=report_text,
+            applied_filters=req.applied_filters,
+            capacity_calculations=req.capacity_calculations,
+            filtered_summary=req.filtered_summary,
+            report_title=req.report_title,
+        )
+
         return StreamingResponse(
             io.BytesIO(pdf_bytes),
             media_type="application/pdf",
-            headers={"Content-Disposition": "attachment; filename=land_analysis_report.pdf"}
+            headers={"Content-Disposition": "attachment; filename=land_analysis_report.pdf"},
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

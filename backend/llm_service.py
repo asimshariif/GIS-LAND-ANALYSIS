@@ -7,7 +7,7 @@ import json
 import os
 import re
 import httpx
-from typing import Optional
+from typing import Optional, AsyncIterator
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -28,8 +28,29 @@ def get_gemini_response(prompt: str) -> str:
         return "Gemini API key not found. Please add GEMINI_API_KEY to .env."
     genai.configure(api_key=api_key)
     model = genai.GenerativeModel("gemini-2.5-flash")
-    response = model.generate_content(prompt)
-    return response.text
+    try:
+        response = model.generate_content(prompt)
+        return response.text
+    except Exception as e:
+        return f"Gemini Error: {e}"
+
+
+async def stream_gemini_response(prompt: str) -> AsyncIterator[str]:
+    """Stream response from Google Gemini token by token."""
+    import google.generativeai as genai
+    api_key = os.getenv("GEMINI_API_KEY")
+    if not api_key:
+        yield "Gemini API key not found. Please add GEMINI_API_KEY to .env."
+        return
+    genai.configure(api_key=api_key)
+    model = genai.GenerativeModel("gemini-2.5-flash")
+    try:
+        response = model.generate_content(prompt, stream=True)
+        for chunk in response:
+            if chunk.text:
+                yield chunk.text
+    except Exception as e:
+        yield f"Gemini Error: {e}"
 
 
 def get_groq_response(prompt: str) -> str:
@@ -39,7 +60,7 @@ def get_groq_response(prompt: str) -> str:
         return "Groq API key not found. Please add GROQ_API_KEY to .env."
     headers = {"Authorization": f"Bearer {api_key}"}
     payload = {
-        "model": "mixtral-8x7b-32768",
+        "model": "llama-3.3-70b-versatile",
         "messages": [{"role": "user", "content": prompt}]
     }
     try:
@@ -56,6 +77,45 @@ def get_groq_response(prompt: str) -> str:
         return f"Groq Error: {e}"
 
 
+async def stream_groq_response(prompt: str) -> AsyncIterator[str]:
+    """Stream response from Groq."""
+    api_key = os.getenv("GROQ_API_KEY")
+    if not api_key:
+        yield "Groq API key not found. Please add GROQ_API_KEY to .env."
+        return
+    headers = {"Authorization": f"Bearer {api_key}"}
+    payload = {
+        "model": "llama-3.3-70b-versatile",
+        "messages": [{"role": "user", "content": prompt}],
+        "stream": True,
+    }
+    try:
+        async with httpx.AsyncClient() as client:
+            async with client.stream(
+                "POST",
+                "https://api.groq.com/openai/v1/chat/completions",
+                headers=headers,
+                json=payload,
+                timeout=60.0,
+            ) as response:
+                response.raise_for_status()
+                async for line in response.aiter_lines():
+                    if line.startswith("data: "):
+                        data_str = line[6:]
+                        if data_str.strip() == "[DONE]":
+                            break
+                        try:
+                            data = json.loads(data_str)
+                            delta = data["choices"][0].get("delta", {})
+                            content = delta.get("content", "")
+                            if content:
+                                yield content
+                        except (json.JSONDecodeError, KeyError, IndexError):
+                            continue
+    except Exception as e:
+        yield f"Groq Error: {e}"
+
+
 def get_ollama_response(prompt: str) -> str:
     """Generate response using local Ollama."""
     url = os.getenv("OLLAMA_URL", "http://localhost:11434/api/generate")
@@ -68,14 +128,90 @@ def get_ollama_response(prompt: str) -> str:
         return f"Ollama error: {e}"
 
 
+async def stream_ollama_response(prompt: str) -> AsyncIterator[str]:
+    """Stream response from local Ollama."""
+    url = os.getenv("OLLAMA_URL", "http://localhost:11434/api/generate")
+    payload = {"model": "llama3", "prompt": prompt, "stream": True}
+    try:
+        async with httpx.AsyncClient() as client:
+            async with client.stream(
+                "POST", url, json=payload, timeout=120.0
+            ) as response:
+                response.raise_for_status()
+                async for line in response.aiter_lines():
+                    if line.strip():
+                        try:
+                            data = json.loads(line)
+                            token = data.get("response", "")
+                            if token:
+                                yield token
+                        except json.JSONDecodeError:
+                            continue
+    except Exception as e:
+        yield f"Ollama error: {e}"
+
+
 def call_llm(prompt: str, provider: str = LLM_PROVIDER) -> str:
-    """Route prompt to the configured LLM provider."""
-    if provider == "gemini":
-        return get_gemini_response(prompt)
-    elif provider == "groq":
-        return get_groq_response(prompt)
-    else:
-        return get_ollama_response(prompt)
+    """Route prompt to the configured LLM provider, with automatic fallback."""
+    providers = _provider_order(provider)
+    last_error = None
+    for p in providers:
+        try:
+            if p == "gemini":
+                result = get_gemini_response(prompt)
+            elif p == "groq":
+                result = get_groq_response(prompt)
+            else:
+                result = get_ollama_response(prompt)
+            # Treat error-message returns as failures to trigger fallback
+            if result.startswith(("Gemini API key not found", "Groq API key not found",
+                                  "Groq Error:", "Gemini Error:", "Ollama error:")):
+                last_error = result
+                continue
+            return result
+        except Exception as e:
+            last_error = str(e)
+            continue
+    return f"All LLM providers failed. Last error: {last_error}"
+
+
+async def stream_llm(prompt: str, provider: str = LLM_PROVIDER) -> AsyncIterator[str]:
+    """Route prompt to the configured LLM provider with streaming and fallback."""
+    providers = _provider_order(provider)
+    for p in providers:
+        try:
+            chunks = []
+            failed = False
+            if p == "gemini":
+                gen = stream_gemini_response(prompt)
+            elif p == "groq":
+                gen = stream_groq_response(prompt)
+            else:
+                gen = stream_ollama_response(prompt)
+            async for chunk in gen:
+                # Detect error messages in first chunk
+                if not chunks and chunk.startswith((
+                    "Gemini API key not found", "Groq API key not found",
+                    "Groq Error:", "Gemini Error:", "Ollama error:",
+                )):
+                    failed = True
+                    break
+                chunks.append(chunk)
+                yield chunk
+            if not failed and chunks:
+                return  # success
+        except Exception:
+            continue
+    if not chunks:
+        yield "All LLM providers failed. Please check your API keys."
+
+
+def _provider_order(primary: str) -> list[str]:
+    """Return provider list with primary first, then fallbacks."""
+    all_providers = ["gemini", "groq", "ollama"]
+    if primary in all_providers:
+        all_providers.remove(primary)
+    return [primary] + all_providers
 
 
 # =============================================================================
@@ -86,141 +222,247 @@ def call_llm(prompt: str, provider: str = LLM_PROVIDER) -> str:
 def generate_selection_report(
     selection_summary: dict,
     extra_context: Optional[str] = None,
-    provider: str = LLM_PROVIDER
+    filtered_summary: Optional[dict] = None,
+    applied_filters: Optional[list] = None,
+    capacity_calculations: Optional[list] = None,
+    report_type: str = "selection",
+    report_title: Optional[str] = None,
+    provider: str = LLM_PROVIDER,
 ) -> str:
     """Generate an LLM report from a polygon/bbox selection summary.
-    
-    The prompt uses SUBTYPE-based categorization with LANDUSE_CATEGORY breakdowns.
-    
+
+    Uses all available user-session context (filters, capacity calculations, etc.)
+    to produce a factually accurate, context-specific report.
+
     Args:
-        selection_summary: The breakdown object from polygon/bbox selection
-        extra_context: Optional user-provided context
-        provider: LLM provider to use (gemini, groq, ollama)
-        
+        selection_summary: The full breakdown object from polygon/bbox selection.
+        extra_context: Optional user-provided context text.
+        filtered_summary: Optional pre-computed stats for the filtered subset.
+        applied_filters: Optional list of human-readable filter descriptions.
+        capacity_calculations: Optional list of individual capacity calc results.
+        report_type: One of 'selection', 'filtered', 'block'.
+        report_title: Optional custom title for the report.
+        provider: LLM provider to use (gemini, groq, ollama).
+
     Returns:
-        Generated report text with five sections.
+        Generated report text.
     """
-    prompt = build_selection_report_prompt(selection_summary, extra_context)
+    prompt = build_selection_report_prompt(
+        summary=selection_summary,
+        extra_context=extra_context,
+        filtered_summary=filtered_summary,
+        applied_filters=applied_filters,
+        capacity_calculations=capacity_calculations,
+        report_type=report_type,
+        report_title=report_title,
+    )
     return call_llm(prompt, provider)
 
 
 def build_selection_report_prompt(
     summary: dict,
-    extra_context: Optional[str] = None
+    extra_context: Optional[str] = None,
+    filtered_summary: Optional[dict] = None,
+    applied_filters: Optional[list] = None,
+    capacity_calculations: Optional[list] = None,
+    report_type: str = "selection",
+    report_title: Optional[str] = None,
 ) -> str:
-    """Build the LLM prompt for selection report generation.
-    
-    Report sections:
-    1. Area Overview
-    2. Land Use Analysis by Type
-    3. Capacity and Utilization Assessment
-    4. Development Status
-    5. Recommendations
+    """Build a context-aware LLM prompt for report generation.
+
+    The prompt embeds ONLY the exact data provided — no estimates or invented
+    numbers are included.  The LLM is explicitly instructed to reproduce
+    only those numbers in its output.
     """
-    # Extract key metrics
+    title = report_title or "GIS Land Analysis Report"
+
+    # ---- Initial selection metrics ----
     total_parcels = summary.get("total_parcels", 0)
     total_area_m2 = summary.get("total_area_m2", 0)
     vacant_count = summary.get("vacant_count", 0)
     developed_count = summary.get("developed_count", 0)
-    commercial_area = summary.get("commercial_total_area_m2", 0)
-    non_commercial_area = summary.get("non_commercial_total_area_m2", 0)
     religious_capacity = summary.get("total_religious_capacity", 0)
     shops_estimated = summary.get("total_shops_estimated", 0)
     blocks_covered = summary.get("block_ids_covered", [])
-    
-    # Build category breakdown section
     breakdown = summary.get("breakdown", {})
-    category_lines = []
-    for category, data in breakdown.items():
-        count = data.get("count", 0)
-        area = data.get("total_area_m2", 0)
-        capacity = data.get("total_capacity_estimated", 0)
-        shops = data.get("total_shops_estimated", 0)
-        
-        line = f"  - {category}: {count} parcels, {area:,.0f} m²"
-        if capacity > 0:
-            line += f", capacity: {capacity:,}"
-        if shops > 0:
-            line += f", shops: {shops:,}"
-        category_lines.append(line)
-    
-    category_breakdown_text = "\n".join(category_lines) if category_lines else "  No data available"
-    
-    # Build vacancy analysis
-    if total_parcels > 0:
-        vacancy_rate = (vacant_count / total_parcels) * 100
-        development_rate = (developed_count / total_parcels) * 100
-    else:
-        vacancy_rate = 0
-        development_rate = 0
-    
-    vacancy_text = f"""
-  - Vacant Parcels: {vacant_count} ({vacancy_rate:.1f}%)
-  - Developed Parcels: {developed_count} ({development_rate:.1f}%)
-  - Other Status: {total_parcels - vacant_count - developed_count} parcels"""
-    
-    # Build blocks section
-    blocks_text = ", ".join(blocks_covered[:10]) if blocks_covered else "None identified"
+
+    vacancy_rate = (vacant_count / total_parcels * 100) if total_parcels > 0 else 0.0
+    dev_rate = (developed_count / total_parcels * 100) if total_parcels > 0 else 0.0
+
+    blocks_text = ", ".join(str(b) for b in blocks_covered[:10]) if blocks_covered else "None identified"
     if len(blocks_covered) > 10:
-        blocks_text += f" ... and {len(blocks_covered) - 10} more"
-    
-    prompt = f"""You are an expert urban planner analyzing a land parcel selection in Saudi Arabia.
+        blocks_text += f" (and {len(blocks_covered) - 10} more)"
 
-=== SELECTION DATA ===
+    # ---- Assemble prompt header ----
+    prompt = f"""You are an expert urban planner producing a professional GIS land analysis report for a project in Saudi Arabia.
 
-AREA OVERVIEW:
-  - Total Parcels: {total_parcels}
-  - Total Area: {total_area_m2:,.0f} m²
-  - Commercial Area: {commercial_area:,.0f} m²
-  - Non-Commercial Area: {non_commercial_area:,.0f} m²
-  - Blocks Covered: {blocks_text}
+REPORT TYPE: {report_type.upper()}
+REPORT TITLE: {title}
 
-LAND USE BREAKDOWN BY CATEGORY (SUBTYPE-based classification):
-{category_breakdown_text}
-
-CAPACITY ESTIMATES:
-  - Total Religious Facility Capacity: {religious_capacity:,} worshippers (at 1.2 m²/person)
-  - Total Commercial Shops: {shops_estimated:,} units (at 120 m²/shop estimate)
-
-DEVELOPMENT STATUS:
-{vacancy_text}
-
+=== INITIAL AREA SELECTION ===
+Total Parcels: {total_parcels:,}
+Total Area: {total_area_m2:,.0f} m² ({total_area_m2 / 10_000:.2f} hectares)
+Blocks Covered: {blocks_text} ({len(blocks_covered)} block(s))
+Vacant Parcels: {vacant_count:,} ({vacancy_rate:.1f}%)
+Developed Parcels: {developed_count:,} ({dev_rate:.1f}%)
 """
-    
+
+    if religious_capacity > 0:
+        prompt += f"Total Religious Facility Capacity: {religious_capacity:,} worshippers\n"
+    if shops_estimated > 0:
+        prompt += f"Total Estimated Commercial Shops: {shops_estimated:,} units\n"
+
+    # ---- Full selection land-use breakdown ----
+    if breakdown:
+        prompt += "\nLAND USE BREAKDOWN (Full Selection):\n"
+        for cat, data in sorted(breakdown.items(), key=lambda x: x[1].get("count", 0), reverse=True):
+            count = data.get("count", 0)
+            area = data.get("total_area_m2", 0)
+            cap = data.get("total_capacity_estimated", 0)
+            shops = data.get("total_shops_estimated", 0)
+            line = f"  - {cat}: {count} parcels, {area:,.0f} m²"
+            if cap > 0:
+                line += f" | capacity: {cap:,} worshippers"
+            if shops > 0:
+                line += f" | estimated shops: {shops:,}"
+            prompt += line + "\n"
+
+    # ---- Applied filters ----
+    if applied_filters:
+        prompt += "\n=== APPLIED FILTERS / QUERIES ===\n"
+        for f_desc in applied_filters:
+            prompt += f"  - {f_desc}\n"
+
+    # ---- Filtered/queried subset ----
+    if filtered_summary:
+        f_total = filtered_summary.get("total_parcels", 0)
+        f_area = filtered_summary.get("total_area_m2", 0)
+        f_vacant = filtered_summary.get("vacant_count", 0)
+        f_developed = filtered_summary.get("developed_count", 0)
+        f_blocks = filtered_summary.get("block_ids_covered", [])
+        f_breakdown = filtered_summary.get("breakdown", {})
+        f_vacancy = (f_vacant / f_total * 100) if f_total > 0 else 0.0
+
+        prompt += f"""
+=== FILTERED SELECTION — PRIMARY ANALYSIS TARGET ===
+Filtered Parcels: {f_total:,} out of {total_parcels:,} total ({f_total / total_parcels * 100:.1f}%)
+Filtered Area: {f_area:,.0f} m² ({f_area / 10_000:.2f} hectares)
+Vacant: {f_vacant:,} ({f_vacancy:.1f}%) | Developed: {f_developed:,}
+Blocks in Filtered Set: {", ".join(str(b) for b in f_blocks[:8])} ({len(f_blocks)} block(s))
+"""
+        if f_breakdown:
+            prompt += "Filtered Land Use Breakdown:\n"
+            for cat, data in sorted(f_breakdown.items(),
+                                    key=lambda x: x[1].get("count", 0) if isinstance(x[1], dict) else 0,
+                                    reverse=True):
+                if not isinstance(data, dict):
+                    continue
+                count = data.get("count", 0)
+                area = data.get("total_area_m2", 0)
+                subtypes = data.get("subtypes", {})
+                line = f"  - {cat}: {count} parcels, {area:,.0f} m²"
+                if subtypes:
+                    top = sorted(subtypes.items(), key=lambda x: x[1], reverse=True)[:3]
+                    line += f" (subtypes: {', '.join(f'{s}: {c}' for s, c in top)})"
+                prompt += line + "\n"
+
+    # ---- Individual capacity calculations ----
+    if capacity_calculations:
+        prompt += "\n=== CAPACITY CALCULATIONS PERFORMED BY USER ===\n"
+        for calc in capacity_calculations:
+            ctype = calc.get("type", "unknown")
+            pid = calc.get("parcel_id", "N/A")
+            subtype = calc.get("subtype", "Unknown")
+            area_m2 = calc.get("area_m2", 0)
+            if ctype == "mosque":
+                cap_val = calc.get("capacity_worshippers", 0)
+                rate = calc.get("rate_m2_per_worshipper", 8.0)
+                floors = calc.get("floors_estimated", 1)
+                prompt += (
+                    f"  - Mosque: {subtype} (ID: {pid}) | "
+                    f"{area_m2:,.0f} m² | {floors} floor(s) | "
+                    f"Capacity: {cap_val:,} worshippers @ {rate} m²/worshipper\n"
+                )
+            elif ctype == "commercial":
+                shops = calc.get("shops_estimated", 0)
+                shop_size = calc.get("shop_size_m2", 120)
+                floors = calc.get("floors_estimated", 1)
+                prompt += (
+                    f"  - Commercial: {subtype} (ID: {pid}) | "
+                    f"{area_m2:,.0f} m² | {floors} floor(s) | "
+                    f"Estimated {shops:,} shops @ {shop_size} m²/shop\n"
+                )
+
+    # ---- Extra user context ----
     if extra_context:
-        prompt += f"""ADDITIONAL CONTEXT FROM USER:
-{extra_context}
+        prompt += f"\n=== ADDITIONAL CONTEXT FROM USER ===\n{extra_context}\n"
 
+    # ---- Section structure based on report type ----
+    has_filter = filtered_summary is not None
+    has_capacity = bool(capacity_calculations)
+
+    if report_type == "block":
+        analysis_section = (
+            "3. BLOCK COMPOSITION\n"
+            "   Analyze the land use mix within this specific block. List every category present\n"
+            "   with exact parcel counts and areas from the data."
+        )
+    elif has_filter:
+        analysis_section = (
+            "3. FILTERED AREA ANALYSIS\n"
+            "   Deep-dive into the FILTERED SELECTION.  List every land-use type with exact\n"
+            "   counts, areas, and notable subtypes.  Compare proportions to the full selection\n"
+            "   where this adds insight."
+        )
+    else:
+        analysis_section = (
+            "3. LAND USE ANALYSIS\n"
+            "   Analyze every LANDUSE_CATEGORY present.  Use exact counts and areas from the\n"
+            "   data.  Discuss distribution and notable patterns."
+        )
+
+    capacity_section_text = ""
+    next_section = 4
+    if has_capacity:
+        capacity_section_text = (
+            "4. CAPACITY ASSESSMENT\n"
+            "   For each parcel capacity calculation listed above, state the exact result.\n"
+            "   Contextualise: is this capacity adequate for the surrounding land use?\n"
+            "   Compare individual results to the aggregate figures in the selection.\n"
+        )
+        next_section = 5
+
+    prompt += f"""
+=== REPORT INSTRUCTIONS ===
+
+Generate a professional urban planning report with EXACTLY the sections below.
+
+CRITICAL RULE: Every number you cite in the report MUST match the data supplied above exactly.
+Do NOT invent, round, or approximate any figure that is not in the data.
+Do NOT add sections beyond those listed.
+
+1. EXECUTIVE SUMMARY
+   2–3 sentences: what area was selected, any filters or queries applied, and the single most
+   important finding.
+
+2. AREA OVERVIEW
+   Report exact figures: total parcels, total area (m² and hectares), blocks covered,
+   vacant count and percentage, developed count and percentage.
+   {"If a filtered subset is present, summarise both the full selection and the filtered focus area." if has_filter else ""}
+
+{analysis_section}
+
+{capacity_section_text}
+{next_section}. DEVELOPMENT STATUS
+   Use the exact vacancy and development numbers. Identify concerns or opportunities
+   (e.g., high vacancy in a specific category, underdeveloped commercial land).
+
+{next_section + 1}. RECOMMENDATIONS
+   Provide 3–5 specific, actionable recommendations for urban planners.
+   Reference actual categories, block IDs, and numbers from the data.
+
+Write in a formal, objective tone suitable for a planning authority submission.
 """
-    
-    prompt += """=== INSTRUCTIONS ===
-
-Generate a professional urban planning report with EXACTLY these five sections:
-
-1. AREA OVERVIEW
-   Summarize the selection: total parcels, total area, number of blocks covered.
-
-2. LAND USE ANALYSIS BY TYPE
-   Analyze each LANDUSE_CATEGORY present. Use specific SUBTYPE labels where relevant.
-   Discuss the distribution and any notable patterns.
-
-3. CAPACITY AND UTILIZATION ASSESSMENT
-   Evaluate religious facility (mosque) capacity relative to population estimates.
-   Analyze commercial potential and shop density.
-   Identify any capacity constraints or opportunities.
-
-4. DEVELOPMENT STATUS
-   Analyze vacancy rates and development levels.
-   Highlight areas with high vacancy or underutilization.
-
-5. RECOMMENDATIONS
-   Provide 3-5 actionable recommendations for urban planners.
-   Consider zoning, development priorities, and infrastructure needs.
-
-Write in a professional, objective tone. Use numbers and percentages to support analysis.
-Do NOT add any sections beyond the five listed above.
-"""
-    
     return prompt
 
 
@@ -249,6 +491,30 @@ def answer_nl_query(
     answer, filters = _parse_nl_response(raw)
     matching_ids = _filter_parcels_by_criteria(parcels_summary.get("parcels", []), filters)
     return {"answer": answer, "matching_parcel_ids": matching_ids}
+
+
+async def stream_nl_query(
+    question: str,
+    parcels_summary: dict,
+    provider: str = LLM_PROVIDER,
+) -> AsyncIterator[str]:
+    """Stream an NL query answer as SSE events.
+
+    Streams the answer text token-by-token, then sends a final event
+    with the matching parcel IDs (extracted from the accumulated response).
+    """
+    prompt = _build_nl_query_prompt(question, parcels_summary)
+    full_response = ""
+    async for chunk in stream_llm(prompt, provider):
+        full_response += chunk
+        yield f"data: {json.dumps({'type': 'token', 'content': chunk})}\n\n"
+
+    # Parse filters from the complete response
+    answer, filters = _parse_nl_response(full_response)
+    matching_ids = _filter_parcels_by_criteria(
+        parcels_summary.get("parcels", []), filters
+    )
+    yield f"data: {json.dumps({'type': 'done', 'matching_parcel_ids': matching_ids})}\n\n"
 
 
 def _build_nl_query_prompt(question: str, summary: dict) -> str:
@@ -378,13 +644,18 @@ Do not hallucinate or invent numbers.
 
 After your answer, on a NEW line, output a JSON block wrapped in ```json ... ``` with the following structure to indicate which parcels are relevant to your answer:
 {{
-  "relevant_categories": ["list of LANDUSE_CATEGORY values relevant to the question, e.g. Religious, Commercial, Educational"],
-  "relevant_subtypes": ["list of SUBTYPE values if the question targets specific subtypes"],
-  "relevant_details": ["list of DETAIL values if the question targets specific details"],
-  "relevant_statuses": ["list of STATUS values if the question targets development status e.g. Vacant, Developed"]
+  "relevant_categories": ["LANDUSE_CATEGORY values — use ONLY for broad queries like 'show all religious' or 'show commercial'"],
+  "relevant_subtypes": ["SUBTYPE_LABEL_EN values if the question targets a subtype"],
+  "relevant_details": ["DETAIL_LABEL_EN values from the Detailed Land Use section — use for SPECIFIC types like Mosque, School, Park, Hospital etc."],
+  "relevant_statuses": ["STATUS values if the question targets development status e.g. Vacant, Developed"]
 }}
+IMPORTANT: Be as SPECIFIC as possible. For example:
+- "how many mosques" → use relevant_details: ["Mosque"] (NOT relevant_categories: ["Religious"] which includes imam residences etc.)
+- "show schools" → use relevant_details matching the exact school detail labels from the data
+- "show all commercial" → use relevant_categories: ["Commercial"]
 Only include non-empty arrays for criteria that are actually relevant to the question.
 If the question is general (about ALL parcels), return empty arrays for all fields.
+The values MUST exactly match the labels from the data above (case-sensitive).
 """
 
 
@@ -412,6 +683,10 @@ def _parse_nl_response(raw: str) -> tuple[str, dict]:
 def _filter_parcels_by_criteria(parcels: list[dict], filters: dict) -> list[str]:
     """Filter parcels using criteria extracted from LLM response.
 
+    Uses the most specific filter available: details > subtypes > categories > statuses.
+    When a more specific filter is present, broader filters are ignored to avoid
+    over-matching (e.g. "Mosque" detail won't also match all "Religious" parcels).
+
     Returns list of matching PARCEL_IDs.
     """
     categories = [v.lower() for v in filters.get("relevant_categories", [])]
@@ -430,15 +705,19 @@ def _filter_parcels_by_criteria(parcels: list[dict], filters: dict) -> list[str]
         det = (p.get("DETAIL_LABEL_EN") or "").lower()
         sta = (p.get("PARCEL_STATUS_LABEL") or "").lower()
 
-        # Parcel matches if it matches ANY of the specified filter groups
-        if categories and cat in categories:
-            matched.append(str(p.get("PARCEL_ID")))
-        elif subtypes and sub in subtypes:
-            matched.append(str(p.get("PARCEL_ID")))
-        elif details and det in details:
-            matched.append(str(p.get("PARCEL_ID")))
-        elif statuses and sta in statuses:
-            matched.append(str(p.get("PARCEL_ID")))
+        # Use the most specific filter available
+        if details:
+            if det in details:
+                matched.append(str(p.get("PARCEL_ID")))
+        elif subtypes:
+            if sub in subtypes:
+                matched.append(str(p.get("PARCEL_ID")))
+        elif categories:
+            if cat in categories:
+                matched.append(str(p.get("PARCEL_ID")))
+        elif statuses:
+            if sta in statuses:
+                matched.append(str(p.get("PARCEL_ID")))
 
     return matched
 

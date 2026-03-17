@@ -109,13 +109,29 @@ class CommercialCapacityRequest(BaseModel):
 
 class ReportRequest(BaseModel):
     """Request to generate an LLM or PDF report for a selection."""
-    selected_objectids: Optional[List[str]] = Field(
-        default=None,
-        description="List of PARCEL_IDs in the selection (optional)"
-    )
     selection_summary: Dict[str, Any] = Field(
         ...,
-        description="The breakdown object from polygon/bbox selection"
+        description="The full breakdown object from polygon/bbox selection"
+    )
+    filtered_summary: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="Summary stats for the filtered/queried subset of parcels (if a filter was applied)"
+    )
+    applied_filters: Optional[List[str]] = Field(
+        default=None,
+        description="Human-readable descriptions of filters the user applied (e.g. 'Category: Religious')"
+    )
+    capacity_calculations: Optional[List[Dict[str, Any]]] = Field(
+        default=None,
+        description="List of individual parcel capacity calculations performed by the user"
+    )
+    report_type: str = Field(
+        default="selection",
+        description="Type of report: 'selection' | 'filtered' | 'block'"
+    )
+    report_title: Optional[str] = Field(
+        default=None,
+        description="Optional custom title for the report"
     )
     extra_context: Optional[str] = Field(
         default=None,
