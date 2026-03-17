@@ -54,18 +54,32 @@ const AnalysisPanel = ({ results, selectionData, onZoomToBlock, onBlockReport })
         blocks[blockId].residential_count++;
       }
       
-      // Store centroid for zoom
-      if (!blocks[blockId].centroid && parcel.centroid) {
-        blocks[blockId].centroid = parcel.centroid;
+      // Accumulate coords for block centroid
+      const lat = Number(parcel.REPR_LAT);
+      const lon = Number(parcel.REPR_LON);
+      if (lat && lon) {
+        if (!blocks[blockId]._lats) { blocks[blockId]._lats = []; blocks[blockId]._lons = []; }
+        blocks[blockId]._lats.push(lat);
+        blocks[blockId]._lons.push(lon);
       }
     });
     
-    // Add computed values for sorting
-    return Object.values(blocks).map(block => ({
-      ...block,
-      mosque_capacity: Math.floor(block.mosque_area / 8),
-      est_shops: Math.floor(block.commercial_area / 120),
-    }));
+    // Add computed values for sorting + centroid from averaged coords
+    return Object.values(blocks).map(block => {
+      const lats = block._lats || [];
+      const lons = block._lons || [];
+      const centroid = lats.length
+        ? [lats.reduce((a, b) => a + b, 0) / lats.length, lons.reduce((a, b) => a + b, 0) / lons.length]
+        : null;
+      delete block._lats;
+      delete block._lons;
+      return {
+        ...block,
+        centroid,
+        mosque_capacity: Math.floor(block.mosque_area / 8),
+        est_shops: Math.floor(block.commercial_area / 120),
+      };
+    });
   }, [selectionData]);
 
   // Filter and sort
@@ -136,39 +150,24 @@ const AnalysisPanel = ({ results, selectionData, onZoomToBlock, onBlockReport })
         <table style={styles.table}>
           <thead>
             <tr>
-              <th style={styles.th} onClick={() => toggleSort('block_id')}>
-                <span>Block ID</span>
-                <SortIcon field="block_id" />
-              </th>
-              <th style={styles.th} onClick={() => toggleSort('total_parcels')}>
-                <span>Parcels</span>
-                <SortIcon field="total_parcels" />
-              </th>
-              <th style={styles.th} onClick={() => toggleSort('mosque_count')}>
-                <span>Mosque</span>
-                <SortIcon field="mosque_count" />
-              </th>
-              <th style={styles.th} onClick={() => toggleSort('commercial_count')}>
-                <span>Commercial</span>
-                <SortIcon field="commercial_count" />
-              </th>
-              <th style={styles.th} onClick={() => toggleSort('residential_count')}>
-                <span>Residential</span>
-                <SortIcon field="residential_count" />
-              </th>
-              <th style={styles.th} onClick={() => toggleSort('mosque_capacity')}>
-                <span>Mosque Cap.</span>
-                <SortIcon field="mosque_capacity" />
-              </th>
-              <th style={styles.th} onClick={() => toggleSort('est_shops')}>
-                <span>Est. Shops</span>
-                <SortIcon field="est_shops" />
-              </th>
-              <th style={styles.th} onClick={() => toggleSort('vacant_count')}>
-                <span>Vacant</span>
-                <SortIcon field="vacant_count" />
-              </th>
-              <th style={styles.th}></th>
+              {[
+                { label: 'Block', field: 'block_id', w: '10%' },
+                { label: 'Parcels', field: 'total_parcels', w: '9%' },
+                { label: 'Mosque', field: 'mosque_count', w: '10%' },
+                { label: 'Comm.', field: 'commercial_count', w: '10%' },
+                { label: 'Resid.', field: 'residential_count', w: '10%' },
+                { label: 'Msq Cap.', field: 'mosque_capacity', w: '11%' },
+                { label: 'Shops', field: 'est_shops', w: '9%' },
+                { label: 'Vacant', field: 'vacant_count', w: '9%' },
+              ].map(col => (
+                <th key={col.field} style={{ ...styles.th, width: col.w }} onClick={() => toggleSort(col.field)}>
+                  <div style={styles.thInner}>
+                    <span>{col.label}</span>
+                    <SortIcon field={col.field} />
+                  </div>
+                </th>
+              ))}
+              <th style={{ ...styles.th, width: '12%', cursor: 'default' }}></th>
             </tr>
           </thead>
           <tbody>
@@ -257,7 +256,7 @@ const styles = {
     display: 'flex',
     flexDirection: 'column',
     height: '100%',
-    background: 'var(--panel-surface)',
+    background: 'rgba(248, 250, 252, 0.6)',
   },
   emptyState: {
     display: 'flex',
@@ -273,17 +272,18 @@ const styles = {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'space-between',
-    padding: '12px 16px',
-    borderBottom: '1px solid var(--panel-border)',
+    padding: '10px 14px',
+    borderBottom: '1px solid rgba(0,0,0,0.07)',
+    background: 'rgba(255,255,255,0.85)',
   },
   searchBox: {
     display: 'flex',
     alignItems: 'center',
     gap: 8,
     padding: '6px 10px',
-    background: 'var(--bg-deep-navy)',
-    borderRadius: 6,
-    border: '1px solid var(--panel-border)',
+    background: 'rgba(0,0,0,0.04)',
+    borderRadius: 8,
+    border: '1px solid rgba(0,0,0,0.07)',
   },
   searchInput: {
     background: 'none',
@@ -305,21 +305,26 @@ const styles = {
     width: '100%',
     borderCollapse: 'collapse',
     fontSize: '0.8rem',
+    tableLayout: 'fixed',
   },
   th: {
-    padding: '10px 12px',
+    padding: '9px 12px',
     textAlign: 'left',
-    background: 'var(--bg-deep-navy)',
-    color: 'var(--text-secondary)',
-    fontWeight: 600,
-    fontSize: '0.7rem',
+    background: 'rgba(248,250,252,0.97)',
+    color: 'var(--text-tertiary)',
+    fontWeight: 700,
+    fontSize: '0.68rem',
     textTransform: 'uppercase',
-    letterSpacing: '0.03em',
+    letterSpacing: '0.04em',
     cursor: 'pointer',
     userSelect: 'none',
     position: 'sticky',
     top: 0,
-    display: 'flex',
+    borderBottom: '1px solid rgba(0,0,0,0.07)',
+    whiteSpace: 'nowrap',
+  },
+  thInner: {
+    display: 'inline-flex',
     alignItems: 'center',
     gap: 4,
   },
@@ -327,22 +332,23 @@ const styles = {
     cursor: 'default',
   },
   tr: {
-    borderBottom: '1px solid var(--panel-border)',
+    borderBottom: '1px solid rgba(0,0,0,0.05)',
     transition: 'background var(--transition-fast)',
+    background: '#ffffff',
   },
   td: {
-    padding: '10px 12px',
+    padding: '9px 12px',
     color: 'var(--text-primary)',
   },
   blockId: {
-    fontWeight: 600,
+    fontWeight: 700,
     color: 'var(--accent-blue)',
   },
   vacantBadge: {
     padding: '2px 8px',
-    background: 'rgba(245, 158, 11, 0.2)',
-    color: '#f59e0b',
-    borderRadius: 4,
+    background: 'rgba(217,119,6,0.10)',
+    color: '#d97706',
+    borderRadius: 5,
     fontSize: '0.75rem',
     fontWeight: 600,
   },
@@ -362,11 +368,12 @@ const styles = {
   viewButton: {
     width: 28,
     height: 28,
-    borderRadius: 6,
+    borderRadius: 7,
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    background: 'var(--panel-border)',
+    background: 'rgba(0,0,0,0.05)',
+    border: '1px solid rgba(0,0,0,0.07)',
     color: 'var(--text-secondary)',
     cursor: 'pointer',
     transition: 'all var(--transition-fast)',
@@ -374,21 +381,23 @@ const styles = {
   reportButton: {
     width: 28,
     height: 28,
-    borderRadius: 6,
+    borderRadius: 7,
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    background: 'var(--accent-blue)',
+    background: 'linear-gradient(135deg, #3b82f6, #2563eb)',
+    border: 'none',
     color: 'white',
     cursor: 'pointer',
     transition: 'all var(--transition-fast)',
+    boxShadow: '0 2px 6px rgba(59,130,246,0.35)',
   },
   footer: {
     display: 'flex',
     justifyContent: 'space-around',
-    padding: '12px 16px',
-    background: 'var(--bg-deep-navy)',
-    borderTop: '1px solid var(--panel-border)',
+    padding: '10px 16px',
+    background: 'rgba(255,255,255,0.9)',
+    borderTop: '1px solid rgba(0,0,0,0.07)',
   },
   footerStat: {
     display: 'flex',
@@ -397,13 +406,15 @@ const styles = {
     gap: 2,
   },
   footerLabel: {
-    fontSize: '0.7rem',
-    color: 'var(--text-secondary)',
+    fontSize: '0.68rem',
+    color: 'var(--text-tertiary)',
     textTransform: 'uppercase',
+    letterSpacing: '0.04em',
+    fontWeight: 600,
   },
   footerValue: {
     fontSize: '1rem',
-    fontWeight: 600,
+    fontWeight: 700,
     color: 'var(--text-primary)',
   },
 };

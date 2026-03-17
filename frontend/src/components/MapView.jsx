@@ -26,8 +26,20 @@ const CATEGORY_COLORS = {
   Unknown:      '#6b7280',
 };
 
+// Fly-to handler reacts to zoomTarget changes
+function FlyToHandler({ zoomTarget }) {
+  const map = useMap();
+  useEffect(() => {
+    if (zoomTarget && zoomTarget.length >= 2) {
+      map.flyTo([zoomTarget[0], zoomTarget[1]], 17, { duration: 1.2 });
+    }
+  }, [zoomTarget, map]);
+  return null;
+}
+
 // DrawControl wrapper to handle mode changes
 function DrawControlWrapper({ drawMode, onDrawComplete, onClearLayers }) {
+
   const map = useMap();
   const featureGroupRef = useRef();
   const drawControlRef = useRef();
@@ -204,6 +216,7 @@ export default function MapView({
   highlightedObjectIds,
   onParcelClick,
   selectedObjectIds,
+  zoomTarget,
 }) {
   const mapRef = useRef();
   const [parcels, setParcels] = useState([]);
@@ -271,6 +284,9 @@ export default function MapView({
           attribution='&copy; <a href="https://www.google.com/maps">Google Maps</a>'
           maxZoom={20}
         />
+
+        {/* Fly-to on zoomTarget change */}
+        <FlyToHandler zoomTarget={zoomTarget} />
 
         {/* Draw Controls */}
         <DrawControlWrapper

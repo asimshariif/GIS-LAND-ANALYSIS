@@ -37,6 +37,9 @@ export default function App() {
   const [isGeneratingReport, setIsGeneratingReport] = useState(false);
   const [reportError, setReportError] = useState(null);
 
+  // Map zoom target [lat, lng]
+  const [zoomTarget, setZoomTarget] = useState(null);
+
   // Handle selection complete from MapView
   const handleSelectionComplete = useCallback((summary, objectIds, parcels) => {
     setSelectionSummary(summary);
@@ -150,15 +153,50 @@ export default function App() {
 
   // Handle zoom to block from AnalysisPanel
   const handleZoomToBlock = useCallback((block) => {
-    // This would trigger map zoom - for now just log
-    console.log('Zoom to block:', block);
+    if (block.centroid && block.centroid.length === 2) {
+      setZoomTarget([...block.centroid, Date.now()]); // append timestamp to force re-trigger
+    }
   }, []);
 
   // Handle block report generation from AnalysisPanel
   const handleBlockReport = useCallback(async (block) => {
-    console.log('Generate report for block:', block);
-    // Could trigger a block-specific report generation
-  }, []);
+    if (!selectionData?.parcels?.length) return;
+
+    // Filter parcels to only this block
+    const blockParcels = selectionData.parcels.filter(p =>
+      (p.BLOCK_NO || p.BLOCK_ID || 'Unknown') === String(block.block_id)
+    );
+    if (!blockParcels.length) return;
+
+    // Build a mini summary for the block
+    const categories = {};
+    let totalArea = 0;
+    blockParcels.forEach(p => {
+      const cat = p.LANDUSE_CATEGORY || 'Unknown';
+      categories[cat] = (categories[cat] || 0) + 1;
+      totalArea += Number(p.AREA_M2) || 0;
+    });
+    const blockSummary = {
+      total_parcels: blockParcels.length,
+      total_area_m2: totalArea,
+      category_breakdown: categories,
+    };
+
+    setIsReportOpen(true);
+    setIsGeneratingReport(true);
+    setReportData(null);
+    setReportError(null);
+
+    try {
+      const result = await generateTextReport(blockSummary);
+      setReportData(result);
+    } catch (e) {
+      console.error('Failed to generate block report:', e);
+      setReportError(e.message || 'Failed to generate report');
+    } finally {
+      setIsGeneratingReport(false);
+    }
+  }, [selectionData]);
 
   return (
     <div className="app-container" style={styles.container}>
@@ -171,6 +209,7 @@ export default function App() {
         highlightedObjectIds={highlightedObjectIds}
         onParcelClick={handleParcelClick}
         selectedObjectIds={selectedObjectIds}
+        zoomTarget={zoomTarget}
       />
 
       {/* Top Bar */}

@@ -1,27 +1,27 @@
 import React from 'react';
-import { Map, FileText, Loader2 } from 'lucide-react';
+import { Layers, FileText, Loader2 } from 'lucide-react';
 
 export default function TopBar({ selectionSummary, onGenerateReport, isGeneratingReport }) {
   const parcelCount = selectionSummary?.total_parcels || 0;
 
   return (
-    <header style={styles.container}>
-      {/* Logo & Title */}
-      <div style={styles.logoSection}>
-        <div style={styles.logoIcon}>
-          <Map size={24} />
+    <div style={styles.wrapper}>
+      <header style={styles.capsule}>
+        {/* Brand */}
+        <div style={styles.brand}>
+          <div style={styles.logoIcon}>
+            <Layers size={15} color="white" strokeWidth={2.5} />
+          </div>
+          <span style={styles.title}>Land Analysis Platform</span>
         </div>
-        <h1 style={styles.title}>Land Analysis Platform</h1>
-      </div>
 
-      {/* Selection Badge */}
-      <div style={styles.badgeSection}>
-        <div style={{
-          ...styles.badge,
-          ...(parcelCount > 0 ? styles.badgeActive : {})
-        }}>
+        <div style={styles.divider} />
+
+        {/* Selection Badge */}
+        <div style={{ ...styles.badge, ...(parcelCount > 0 ? styles.badgeActive : {}) }}>
           {parcelCount > 0 ? (
             <>
+              <span style={styles.badgePulse} />
               <span style={styles.badgeCount}>{parcelCount.toLocaleString()}</span>
               <span style={styles.badgeText}>parcels selected</span>
             </>
@@ -29,133 +29,148 @@ export default function TopBar({ selectionSummary, onGenerateReport, isGeneratin
             <span style={styles.badgeEmpty}>No Selection</span>
           )}
         </div>
-      </div>
 
-      {/* Actions */}
-      <div style={styles.actionsSection}>
+        <div style={styles.divider} />
+
+        {/* Report Button */}
         <button
           style={{
-            ...styles.reportButton,
-            ...(parcelCount === 0 || isGeneratingReport ? styles.reportButtonDisabled : {})
+            ...styles.reportBtn,
+            ...(parcelCount === 0 || isGeneratingReport ? styles.reportBtnDisabled : {}),
           }}
           onClick={onGenerateReport}
           disabled={parcelCount === 0 || isGeneratingReport}
         >
           {isGeneratingReport ? (
             <>
-              <Loader2 size={18} className="animate-spin" style={{ animation: 'spin 1s linear infinite' }} />
-              <span>Generating...</span>
+              <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} />
+              <span>Generating…</span>
             </>
           ) : (
             <>
-              <FileText size={18} />
+              <FileText size={13} />
               <span>Generate Report</span>
             </>
           )}
         </button>
-      </div>
-
-      {/* Spinner keyframes */}
-      <style>{`
-        @keyframes spin {
-          from { transform: rotate(0deg); }
-          to { transform: rotate(360deg); }
-        }
-      `}</style>
-    </header>
+      </header>
+    </div>
   );
 }
 
 const styles = {
-  container: {
+  wrapper: {
     position: 'absolute',
-    top: 0,
+    top: 14,
     left: 0,
     right: 0,
-    height: 'var(--topbar-height)',
-    background: 'var(--panel-surface)',
-    borderBottom: '1px solid var(--panel-border)',
     display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    padding: '0 20px',
+    justifyContent: 'center',
     zIndex: 1000,
-    boxShadow: 'var(--shadow-md)',
+    pointerEvents: 'none',
   },
-  logoSection: {
+  capsule: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 5,
+    padding: '6px 6px',
+    background: 'var(--glass-bg)',
+    backdropFilter: 'blur(28px) saturate(200%)',
+    WebkitBackdropFilter: 'blur(28px) saturate(200%)',
+    border: '1px solid var(--glass-border)',
+    borderRadius: 999,
+    boxShadow: 'var(--shadow-topbar)',
+    pointerEvents: 'auto',
+  },
+  brand: {
     display: 'flex',
     alignItems: 'center',
-    gap: '12px',
-    flex: 1,
+    gap: 9,
+    padding: '0 10px 0 4px',
   },
   logoIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: 8,
-    background: 'var(--accent-blue)',
+    width: 30,
+    height: 30,
+    borderRadius: '50%',
+    background: 'linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%)',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    color: 'white',
+    boxShadow: '0 2px 10px rgba(59,130,246,0.50)',
+    flexShrink: 0,
   },
   title: {
-    margin: 0,
-    fontSize: '1.1rem',
-    fontWeight: 600,
+    fontSize: '0.87rem',
+    fontWeight: 700,
     color: 'var(--text-primary)',
-    letterSpacing: '-0.01em',
+    letterSpacing: '-0.025em',
+    whiteSpace: 'nowrap',
   },
-  badgeSection: {
-    display: 'flex',
-    justifyContent: 'center',
-    flex: 1,
+  divider: {
+    width: 1,
+    height: 20,
+    background: 'rgba(0,0,0,0.10)',
+    flexShrink: 0,
+    margin: '0 2px',
   },
   badge: {
     display: 'flex',
     alignItems: 'center',
-    gap: '8px',
-    padding: '6px 16px',
-    borderRadius: '20px',
-    background: 'var(--bg-deep-navy)',
-    border: '1px solid var(--panel-border)',
-    fontSize: '0.85rem',
+    gap: 7,
+    padding: '5px 14px',
+    borderRadius: 999,
+    background: 'rgba(0,0,0,0.04)',
+    fontSize: '0.81rem',
+    transition: 'all var(--transition-fast)',
+    whiteSpace: 'nowrap',
+    minWidth: 140,
+    justifyContent: 'center',
   },
   badgeActive: {
-    borderColor: 'var(--accent-blue)',
-    background: 'rgba(59, 130, 246, 0.1)',
+    background: 'rgba(59,130,246,0.08)',
+  },
+  badgePulse: {
+    width: 7,
+    height: 7,
+    borderRadius: '50%',
+    background: '#3b82f6',
+    boxShadow: '0 0 0 3px rgba(59,130,246,0.22)',
+    flexShrink: 0,
   },
   badgeCount: {
     fontWeight: 700,
-    color: 'var(--accent-blue)',
-    fontSize: '0.95rem',
+    color: '#2563eb',
+    fontSize: '0.9rem',
   },
   badgeText: {
     color: 'var(--text-secondary)',
+    fontWeight: 500,
   },
   badgeEmpty: {
-    color: 'var(--text-secondary)',
+    color: 'var(--text-tertiary)',
     fontStyle: 'italic',
+    fontWeight: 400,
   },
-  actionsSection: {
-    display: 'flex',
-    justifyContent: 'flex-end',
-    flex: 1,
-  },
-  reportButton: {
+  reportBtn: {
     display: 'flex',
     alignItems: 'center',
-    gap: '8px',
-    padding: '8px 16px',
-    borderRadius: '8px',
-    background: 'var(--accent-blue)',
+    gap: 6,
+    padding: '8px 17px',
+    borderRadius: 999,
+    background: 'linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%)',
     color: 'white',
-    fontWeight: 500,
-    fontSize: '0.875rem',
+    fontSize: '0.81rem',
+    fontWeight: 600,
+    cursor: 'pointer',
     transition: 'all var(--transition-fast)',
+    border: 'none',
+    boxShadow: '0 2px 10px rgba(59,130,246,0.42)',
+    whiteSpace: 'nowrap',
   },
-  reportButtonDisabled: {
-    background: 'var(--panel-border)',
-    color: 'var(--text-secondary)',
+  reportBtnDisabled: {
+    background: 'rgba(0,0,0,0.07)',
+    color: 'var(--text-tertiary)',
+    boxShadow: 'none',
     cursor: 'not-allowed',
   },
 };

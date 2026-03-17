@@ -1,18 +1,12 @@
 import React, { useState } from 'react';
-import { X, Download, FileText, Loader, AlertCircle, ChevronDown, ChevronUp } from 'lucide-react';
+import { X, Download, FileText, Loader, AlertCircle, ChevronDown, ChevronUp, TrendingUp, MapPin, BarChart2, Users } from 'lucide-react';
 import { generatePdfReport } from '../api/client';
 
-const CATEGORY_COLORS = {
-  Residential:  '#10b981',
-  Commercial:   '#f59e0b',
-  Religious:    '#3b82f6',
-  Educational:  '#8b5cf6',
-  Health:       '#ec4899',
-  Municipal:    '#ef4444',
-  Recreational: '#22c55e',
-  Utilities:    '#6366f1',
-  Special:      '#a855f7',
-  Unknown:      '#6b7280',
+const CAT_COLORS = {
+  Residential: '#10b981', Commercial: '#f59e0b', Religious: '#3b82f6',
+  Educational: '#8b5cf6', Health: '#ec4899',     Municipal: '#ef4444',
+  Recreational:'#22c55e', Utilities: '#6366f1',  Special: '#a855f7',
+  Unknown: '#94a3b8',
 };
 
 export default function ReportViewer({ 
@@ -78,161 +72,143 @@ export default function ReportViewer({
         {/* Header */}
         <div style={styles.header}>
           <div style={styles.headerLeft}>
-            <FileText size={24} color="var(--accent-blue)" />
+            <div style={styles.headerIcon}>
+              <FileText size={18} color="white" />
+            </div>
             <div>
               <h1 style={styles.title}>Land Analysis Report</h1>
               <span style={styles.subtitle}>AI-Generated Insights</span>
             </div>
           </div>
           <div style={styles.headerActions}>
-            <button 
-              style={styles.downloadButton}
+            <button
+              style={{ ...styles.downloadBtn, ...(downloadingPdf || isLoading ? styles.btnDisabled : {}) }}
               onClick={handleDownloadPdf}
               disabled={downloadingPdf || isLoading}
             >
-              {downloadingPdf ? (
-                <Loader size={16} className="animate-spin" />
-              ) : (
-                <Download size={16} />
-              )}
-              Download PDF
+              {downloadingPdf ? <Loader size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <Download size={14} />}
+              <span>Download PDF</span>
             </button>
-            <button style={styles.closeButton} onClick={onClose}>
-              <X size={22} />
+            <button style={styles.closeBtn} onClick={onClose}>
+              <X size={18} />
             </button>
           </div>
         </div>
 
-        {/* Content */}
-        <div style={styles.content}>
+        {/* Body */}
+        <div style={styles.body}>
           {isLoading && (
-            <div style={styles.loadingState}>
-              <Loader size={48} style={{ animation: 'spin 1s linear infinite' }} />
-              <p>Generating AI report...</p>
-              <span style={styles.loadingHint}>This may take 15-30 seconds</span>
+            <div style={styles.centerState}>
+              <div style={styles.spinnerRing}>
+                <Loader size={32} style={{ animation: 'spin 1s linear infinite', color: '#3b82f6' }} />
+              </div>
+              <p style={styles.stateTitle}>Generating AI Report…</p>
+              <span style={styles.stateHint}>This may take 15–30 seconds</span>
             </div>
           )}
 
           {error && (
-            <div style={styles.errorState}>
-              <AlertCircle size={48} color="#ef4444" />
-              <p>Failed to generate report</p>
-              <span style={styles.errorDetail}>{error}</span>
+            <div style={styles.centerState}>
+              <AlertCircle size={40} color="#dc2626" />
+              <p style={styles.stateTitle}>Failed to generate report</p>
+              <span style={{ ...styles.stateHint, color: '#dc2626' }}>{error}</span>
             </div>
           )}
 
           {!isLoading && !error && stats && (
             <>
-              {/* Statistics Table */}
-              <Section 
-                title="Selection Overview" 
+              <Section
+                title="Selection Overview"
+                icon={<BarChart2 size={16} color="#3b82f6" />}
                 expanded={expandedSections.overview}
                 onToggle={() => toggleSection('overview')}
               >
-                <div style={styles.statsGrid}>
-                  <div style={styles.statCard}>
-                    <div style={styles.statValue}>{stats.totalParcels.toLocaleString()}</div>
-                    <div style={styles.statLabel}>Total Parcels</div>
-                  </div>
-                  <div style={styles.statCard}>
-                    <div style={styles.statValue}>{(stats.totalArea / 10000).toFixed(2)}</div>
-                    <div style={styles.statLabel}>Total Area (ha)</div>
-                  </div>
-                  <div style={styles.statCard}>
-                    <div style={{ ...styles.statValue, color: '#f59e0b' }}>{stats.vacantCount}</div>
-                    <div style={styles.statLabel}>Vacant Parcels</div>
-                  </div>
-                  <div style={styles.statCard}>
-                    <div style={{ ...styles.statValue, color: '#10b981' }}>{stats.totalParcels - stats.vacantCount}</div>
-                    <div style={styles.statLabel}>Developed</div>
-                  </div>
-                </div>
-              </Section>
-
-              {/* Land Use Categories */}
-              <Section 
-                title="Land Use Breakdown" 
-                expanded={expandedSections.landUse}
-                onToggle={() => toggleSection('landUse')}
-              >
-                <div style={styles.categoryTable}>
-                  <div style={styles.categoryHeader}>
-                    <span>Category</span>
-                    <span>Count</span>
-                    <span>Percentage</span>
-                  </div>
-                  {Object.entries(stats.categories)
-                    .sort((a, b) => b[1] - a[1])
-                    .map(([cat, count]) => (
-                    <div key={cat} style={styles.categoryRow}>
-                      <div style={styles.categoryName}>
-                        <span 
-                          style={{ 
-                            ...styles.categoryDot, 
-                            background: CATEGORY_COLORS[cat] || '#6b7280' 
-                          }} 
-                        />
-                        {cat}
-                      </div>
-                      <span style={styles.categoryCount}>{count}</span>
-                      <span style={styles.categoryPct}>
-                        {((count / stats.totalParcels) * 100).toFixed(1)}%
-                      </span>
+                <div style={styles.kpiGrid}>
+                  {[
+                    { v: stats.totalParcels.toLocaleString(), l: 'Total Parcels', c: '#3b82f6' },
+                    { v: (stats.totalArea / 10000).toFixed(2), l: 'Area (ha)', c: '#6366f1' },
+                    { v: stats.vacantCount, l: 'Vacant', c: '#d97706' },
+                    { v: stats.totalParcels - stats.vacantCount, l: 'Developed', c: '#059669' },
+                  ].map(({ v, l, c }) => (
+                    <div key={l} style={{ ...styles.kpiCard, background: `${c}0d` }}>
+                      <div style={{ ...styles.kpiVal, color: c }}>{v}</div>
+                      <div style={styles.kpiLbl}>{l}</div>
                     </div>
                   ))}
                 </div>
               </Section>
 
-              {/* Capacity Estimates */}
-              <Section 
-                title="Capacity Estimates" 
+              <Section
+                title="Land Use Breakdown"
+                icon={<MapPin size={16} color="#10b981" />}
+                expanded={expandedSections.landUse}
+                onToggle={() => toggleSection('landUse')}
+              >
+                <div style={styles.catTable}>
+                  <div style={styles.catHeader}>
+                    <span>Category</span><span>Count</span><span>Share</span><span>Distribution</span>
+                  </div>
+                  {Object.entries(stats.categories)
+                    .sort((a, b) => b[1] - a[1])
+                    .map(([cat, count]) => {
+                      const pct = ((count / stats.totalParcels) * 100).toFixed(1);
+                      const color = CAT_COLORS[cat] || '#94a3b8';
+                      return (
+                        <div key={cat} style={styles.catRow}>
+                          <div style={styles.catName}>
+                            <span style={{ ...styles.catDot, background: color }} />{cat}
+                          </div>
+                          <span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>{count}</span>
+                          <span style={{ color: 'var(--text-secondary)' }}>{pct}%</span>
+                          <div style={styles.barTrack}>
+                            <div style={{ ...styles.barFill, width: `${pct}%`, background: color }} />
+                          </div>
+                        </div>
+                      );
+                    })}
+                </div>
+              </Section>
+
+              <Section
+                title="Capacity Estimates"
+                icon={<Users size={16} color="#a855f7" />}
                 expanded={expandedSections.capacity}
                 onToggle={() => toggleSection('capacity')}
               >
-                <div style={styles.capacityGrid}>
-                  <div style={styles.capacityCard}>
-                    <div style={styles.capacityIcon}>🕌</div>
-                    <div style={styles.capacityInfo}>
-                      <div style={styles.capacityValue}>
-                        {Math.floor(
-                          selectionData.parcels
-                            .filter(p => p.LANDUSE_CATEGORY === 'Religious')
-                            .reduce((s, p) => s + (Number(p.AREA_M2) || 0), 0) / 8
-                        ).toLocaleString()}
-                      </div>
-                      <div style={styles.capacityLabel}>Mosque Capacity (worshippers)</div>
+                <div style={styles.capGrid}>
+                  <div style={styles.capCard}>
+                    <div style={styles.capEmoji}>🕌</div>
+                    <div style={{ ...styles.capValue, color: '#3b82f6' }}>
+                      {Math.floor(
+                        selectionData.parcels.filter(p => p.LANDUSE_CATEGORY === 'Religious')
+                          .reduce((s, p) => s + (Number(p.AREA_M2) || 0), 0) / 8
+                      ).toLocaleString()}
                     </div>
+                    <div style={styles.capLabel}>Mosque Capacity</div>
                   </div>
-                  <div style={styles.capacityCard}>
-                    <div style={styles.capacityIcon}>🏪</div>
-                    <div style={styles.capacityInfo}>
-                      <div style={styles.capacityValue}>
-                        {Math.floor(
-                          selectionData.parcels
-                            .filter(p => p.LANDUSE_CATEGORY === 'Commercial')
-                            .reduce((s, p) => s + (Number(p.AREA_M2) || 0), 0) / 120
-                        ).toLocaleString()}
-                      </div>
-                      <div style={styles.capacityLabel}>Shops Estimate (at 120m²)</div>
+                  <div style={styles.capCard}>
+                    <div style={styles.capEmoji}>🏪</div>
+                    <div style={{ ...styles.capValue, color: '#d97706' }}>
+                      {Math.floor(
+                        selectionData.parcels.filter(p => p.LANDUSE_CATEGORY === 'Commercial')
+                          .reduce((s, p) => s + (Number(p.AREA_M2) || 0), 0) / 120
+                      ).toLocaleString()}
                     </div>
+                    <div style={styles.capLabel}>Estimated Shops</div>
                   </div>
                 </div>
               </Section>
 
-              {/* LLM Report */}
-              <Section 
-                title="AI Analysis & Insights" 
+              <Section
+                title="AI Analysis & Insights"
+                icon={<TrendingUp size={16} color="#059669" />}
                 expanded={expandedSections.insights}
                 onToggle={() => toggleSection('insights')}
               >
                 {reportData?.report ? (
-                  <div style={styles.reportText}>
-                    {reportData.report}
-                  </div>
+                  <div style={styles.reportText}>{reportData.report}</div>
                 ) : (
-                  <div style={styles.noReport}>
-                    <p>No AI insights available for this selection.</p>
-                  </div>
+                  <div style={styles.noReport}>No AI insights available for this selection.</div>
                 )}
               </Section>
             </>
@@ -243,23 +219,63 @@ export default function ReportViewer({
   );
 }
 
-function Section({ title, expanded, onToggle, children }) {
+function Section({ title, icon, expanded, onToggle, children }) {
   return (
-    <div style={styles.section}>
-      <button style={styles.sectionHeader} onClick={onToggle}>
-        <span style={styles.sectionTitle}>{title}</span>
-        {expanded ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
+    <div style={secStyles.wrap}>
+      <button style={secStyles.header} onClick={onToggle}>
+        <div style={secStyles.titleRow}>
+          {icon}
+          <span style={secStyles.title}>{title}</span>
+        </div>
+        {expanded ? <ChevronUp size={16} style={{ color: 'var(--text-tertiary)' }} /> : <ChevronDown size={16} style={{ color: 'var(--text-tertiary)' }} />}
       </button>
-      {expanded && <div style={styles.sectionContent}>{children}</div>}
+      {expanded && <div style={secStyles.body}>{children}</div>}
     </div>
   );
 }
+
+const secStyles = {
+  wrap: {
+    borderRadius: 16,
+    border: '1px solid rgba(0,0,0,0.07)',
+    overflow: 'hidden',
+    background: '#ffffff',
+    boxShadow: '0 1px 4px rgba(0,0,0,0.04)',
+  },
+  header: {
+    width: '100%',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: '14px 18px',
+    background: 'rgba(248,250,252,0.8)',
+    border: 'none',
+    cursor: 'pointer',
+    borderBottom: '1px solid rgba(0,0,0,0.05)',
+  },
+  titleRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 8,
+  },
+  title: {
+    fontSize: '0.9rem',
+    fontWeight: 700,
+    color: 'var(--text-primary)',
+    letterSpacing: '-0.01em',
+  },
+  body: {
+    padding: '16px 18px',
+  },
+};
 
 const styles = {
   overlay: {
     position: 'fixed',
     inset: 0,
-    background: 'rgba(0, 0, 0, 0.85)',
+    background: 'rgba(15,23,42,0.50)',
+    backdropFilter: 'blur(4px)',
+    WebkitBackdropFilter: 'blur(4px)',
     zIndex: 2000,
     display: 'flex',
     alignItems: 'center',
@@ -267,233 +283,249 @@ const styles = {
     animation: 'fadeIn 0.2s ease',
   },
   modal: {
-    width: '90vw',
-    maxWidth: 900,
+    width: '92vw',
+    maxWidth: 860,
     height: '90vh',
-    maxHeight: 800,
-    background: 'var(--panel-surface)',
-    borderRadius: 16,
+    maxHeight: 820,
+    background: '#f8fafc',
+    borderRadius: 24,
     display: 'flex',
     flexDirection: 'column',
     overflow: 'hidden',
-    boxShadow: 'var(--shadow-xl)',
-    animation: 'slideUp 0.25s ease',
+    boxShadow: '0 32px 80px rgba(0,0,0,0.18), 0 8px 24px rgba(0,0,0,0.10)',
+    animation: 'fadeInScale 0.25s ease',
+    border: '1px solid rgba(255,255,255,0.8)',
   },
   header: {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'space-between',
-    padding: '20px 24px',
-    borderBottom: '1px solid var(--panel-border)',
-    background: 'var(--bg-deep-navy)',
+    padding: '18px 24px',
+    background: 'white',
+    borderBottom: '1px solid rgba(0,0,0,0.07)',
   },
   headerLeft: {
     display: 'flex',
     alignItems: 'center',
     gap: 14,
   },
+  headerIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    background: 'linear-gradient(135deg, #3b82f6, #1d4ed8)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    boxShadow: '0 4px 12px rgba(59,130,246,0.35)',
+  },
   title: {
     margin: 0,
-    fontSize: '1.25rem',
-    fontWeight: 700,
+    fontSize: '1.15rem',
+    fontWeight: 800,
     color: 'var(--text-primary)',
+    letterSpacing: '-0.025em',
   },
   subtitle: {
-    fontSize: '0.8rem',
-    color: 'var(--text-secondary)',
+    fontSize: '0.75rem',
+    color: 'var(--text-tertiary)',
+    fontWeight: 500,
   },
   headerActions: {
     display: 'flex',
     alignItems: 'center',
-    gap: 12,
+    gap: 10,
   },
-  downloadButton: {
+  downloadBtn: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 7,
+    padding: '9px 16px',
+    borderRadius: 999,
+    background: 'linear-gradient(135deg, #3b82f6, #1d4ed8)',
+    color: 'white',
+    fontWeight: 600,
+    fontSize: '0.82rem',
+    cursor: 'pointer',
+    border: 'none',
+    boxShadow: '0 2px 8px rgba(59,130,246,0.40)',
+    transition: 'all var(--transition-fast)',
+  },
+  btnDisabled: {
+    background: 'rgba(0,0,0,0.08)',
+    color: 'var(--text-tertiary)',
+    boxShadow: 'none',
+    cursor: 'not-allowed',
+  },
+  closeBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 999,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    background: 'rgba(0,0,0,0.06)',
+    color: 'var(--text-secondary)',
+    cursor: 'pointer',
+    border: 'none',
+    transition: 'all var(--transition-fast)',
+  },
+  body: {
+    flex: 1,
+    overflowY: 'auto',
+    padding: '20px',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 14,
+  },
+  centerState: {
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flex: 1,
+    gap: 14,
+    padding: 40,
+  },
+  spinnerRing: {
+    width: 64,
+    height: 64,
+    borderRadius: '50%',
+    background: 'rgba(59,130,246,0.08)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  stateTitle: {
+    fontSize: '1rem',
+    fontWeight: 600,
+    color: 'var(--text-primary)',
+    margin: 0,
+  },
+  stateHint: {
+    fontSize: '0.82rem',
+    color: 'var(--text-tertiary)',
+  },
+  kpiGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(4, 1fr)',
+    gap: 10,
+  },
+  kpiCard: {
+    borderRadius: 12,
+    padding: '12px 14px',
+    border: '1px solid rgba(0,0,0,0.05)',
+  },
+  kpiVal: {
+    fontSize: '1.6rem',
+    fontWeight: 800,
+    letterSpacing: '-0.03em',
+    lineHeight: 1,
+  },
+  kpiLbl: {
+    fontSize: '0.68rem',
+    color: 'var(--text-tertiary)',
+    textTransform: 'uppercase',
+    letterSpacing: '0.05em',
+    marginTop: 4,
+    fontWeight: 600,
+  },
+  catTable: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 4,
+  },
+  catHeader: {
+    display: 'grid',
+    gridTemplateColumns: '1fr 60px 60px 120px',
+    padding: '6px 10px',
+    fontSize: '0.67rem',
+    fontWeight: 700,
+    color: 'var(--text-tertiary)',
+    textTransform: 'uppercase',
+    letterSpacing: '0.06em',
+  },
+  catRow: {
+    display: 'grid',
+    gridTemplateColumns: '1fr 60px 60px 120px',
+    padding: '10px 10px',
+    background: 'rgba(248,250,252,0.8)',
+    borderRadius: 8,
+    alignItems: 'center',
+    border: '1px solid rgba(0,0,0,0.04)',
+  },
+  catName: {
     display: 'flex',
     alignItems: 'center',
     gap: 8,
-    padding: '10px 18px',
-    borderRadius: 8,
-    background: 'var(--accent-blue)',
-    color: 'white',
-    fontWeight: 600,
     fontSize: '0.85rem',
-    cursor: 'pointer',
-    transition: 'all var(--transition-fast)',
-  },
-  closeButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 10,
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    background: 'var(--panel-border)',
-    color: 'var(--text-secondary)',
-    cursor: 'pointer',
-    transition: 'all var(--transition-fast)',
-  },
-  content: {
-    flex: 1,
-    overflowY: 'auto',
-    padding: '24px',
-  },
-  loadingState: {
-    display: 'flex',
-    flexDirection: 'column',
-    alignItems: 'center',
-    justifyContent: 'center',
-    height: '100%',
-    gap: 16,
-    color: 'var(--text-secondary)',
-  },
-  loadingHint: {
-    fontSize: '0.8rem',
-    opacity: 0.6,
-  },
-  errorState: {
-    display: 'flex',
-    flexDirection: 'column',
-    alignItems: 'center',
-    justifyContent: 'center',
-    height: '100%',
-    gap: 12,
-    color: 'var(--text-primary)',
-  },
-  errorDetail: {
-    fontSize: '0.85rem',
-    color: '#ef4444',
-  },
-  section: {
-    marginBottom: 20,
-    background: 'var(--bg-deep-navy)',
-    borderRadius: 12,
-    border: '1px solid var(--panel-border)',
-    overflow: 'hidden',
-  },
-  sectionHeader: {
-    width: '100%',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    padding: '16px 20px',
-    background: 'none',
-    border: 'none',
-    color: 'var(--text-primary)',
-    cursor: 'pointer',
-    transition: 'background var(--transition-fast)',
-  },
-  sectionTitle: {
-    fontSize: '1rem',
     fontWeight: 600,
-  },
-  sectionContent: {
-    padding: '0 20px 20px',
-  },
-  statsGrid: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(4, 1fr)',
-    gap: 12,
-  },
-  statCard: {
-    padding: '16px',
-    background: 'var(--panel-surface)',
-    borderRadius: 10,
-    textAlign: 'center',
-  },
-  statValue: {
-    fontSize: '1.75rem',
-    fontWeight: 700,
-    color: 'var(--text-primary)',
-    marginBottom: 4,
-  },
-  statLabel: {
-    fontSize: '0.75rem',
-    color: 'var(--text-secondary)',
-    textTransform: 'uppercase',
-  },
-  categoryTable: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: 2,
-  },
-  categoryHeader: {
-    display: 'grid',
-    gridTemplateColumns: '1fr 80px 80px',
-    padding: '10px 14px',
-    fontSize: '0.7rem',
-    fontWeight: 600,
-    color: 'var(--text-secondary)',
-    textTransform: 'uppercase',
-  },
-  categoryRow: {
-    display: 'grid',
-    gridTemplateColumns: '1fr 80px 80px',
-    padding: '12px 14px',
-    background: 'var(--panel-surface)',
-    borderRadius: 6,
-    alignItems: 'center',
-  },
-  categoryName: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 10,
-    fontWeight: 500,
     color: 'var(--text-primary)',
   },
-  categoryDot: {
+  catDot: {
     width: 10,
     height: 10,
     borderRadius: '50%',
+    flexShrink: 0,
   },
-  categoryCount: {
-    fontWeight: 600,
-    color: 'var(--text-primary)',
-    textAlign: 'center',
+  barTrack: {
+    height: 6,
+    background: 'rgba(0,0,0,0.06)',
+    borderRadius: 999,
+    overflow: 'hidden',
   },
-  categoryPct: {
-    color: 'var(--text-secondary)',
-    textAlign: 'right',
+  barFill: {
+    height: '100%',
+    borderRadius: 999,
+    transition: 'width var(--transition-normal)',
   },
-  capacityGrid: {
+  capGrid: {
     display: 'grid',
     gridTemplateColumns: 'repeat(2, 1fr)',
-    gap: 16,
+    gap: 14,
   },
-  capacityCard: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 16,
+  capCard: {
     padding: '20px',
-    background: 'var(--panel-surface)',
-    borderRadius: 10,
+    background: 'rgba(248,250,252,0.9)',
+    borderRadius: 14,
+    border: '1px solid rgba(0,0,0,0.06)',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 6,
+    alignItems: 'center',
+    textAlign: 'center',
   },
-  capacityIcon: {
+  capEmoji: {
+    fontSize: '2.2rem',
+    lineHeight: 1,
+  },
+  capValue: {
     fontSize: '2rem',
+    fontWeight: 800,
+    letterSpacing: '-0.04em',
+    lineHeight: 1,
   },
-  capacityInfo: {},
-  capacityValue: {
-    fontSize: '1.5rem',
-    fontWeight: 700,
-    color: 'var(--text-primary)',
-    marginBottom: 2,
-  },
-  capacityLabel: {
-    fontSize: '0.8rem',
-    color: 'var(--text-secondary)',
+  capLabel: {
+    fontSize: '0.75rem',
+    color: 'var(--text-tertiary)',
+    textTransform: 'uppercase',
+    letterSpacing: '0.05em',
+    fontWeight: 600,
   },
   reportText: {
     whiteSpace: 'pre-wrap',
-    lineHeight: 1.7,
-    fontSize: '0.9rem',
-    color: 'var(--text-primary)',
+    lineHeight: 1.75,
+    fontSize: '0.88rem',
+    color: 'var(--text-secondary)',
+    background: 'rgba(248,250,252,0.6)',
     padding: '16px',
-    background: 'var(--panel-surface)',
-    borderRadius: 8,
+    borderRadius: 10,
+    border: '1px solid rgba(0,0,0,0.05)',
   },
   noReport: {
     textAlign: 'center',
-    padding: '40px',
-    color: 'var(--text-secondary)',
-    fontSize: '0.9rem',
+    padding: '32px',
+    color: 'var(--text-tertiary)',
+    fontSize: '0.88rem',
   },
 };
