@@ -148,7 +148,7 @@ SUBTYPE_MAP = {
         "main_category": "Religious",
         "main_cat_ar": "ديني",
         "is_commercial": False,
-        "capacity_rate": 1,         # ~1 m² per worshipper (prayer density)
+        "capacity_rate": 1.2,       # ~1.2 m² per worshipper (prayer density)
         "capacity_unit": "m² per worshipper",
     },
 
@@ -331,7 +331,7 @@ DETAILSLANDUSE_MAP = {
         "label_en": "Mosque",
         "parent_subtype": 303000,
         "sub_category": "Mosque",
-        "capacity_rate": 1,         # 1 m² per worshipper
+        "capacity_rate": 1.2,       # 1.2 m² per worshipper (prayer density)
         "capacity_unit": "m² per worshipper",
     },
     303010: {
@@ -363,7 +363,7 @@ DETAILSLANDUSE_MAP = {
         "label_en": "Mosque with Imam & Muezzin Residence",
         "parent_subtype": 303000,
         "sub_category": "Mosque",
-        "capacity_rate": 1,         # mosque portion dominates
+        "capacity_rate": 1.2,       # 1.2 m² per worshipper (prayer density)
         "capacity_unit": "m² per worshipper",
     },
 

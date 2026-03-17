@@ -1,8 +1,15 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { 
   X, ArrowLeft, Calculator, Ruler, MapPin, 
   Users, Store, ChevronRight, Building2
 } from 'lucide-react';
+
+// Only actual mosques should get the worshipper capacity calculator,
+// not imam/muezzin residences which are also under Religious category.
+const isMosque = (parcel) => {
+  const detail = (parcel.DETAIL_LABEL_EN || '').toLowerCase();
+  return parcel.LANDUSE_CATEGORY === 'Religious' && detail.includes('mosque');
+};
 
 const CATEGORY_COLORS = {
   Mosque: '#3b82f6',
@@ -28,6 +35,11 @@ export default function ParcelDetailDrawer({
   const [calculatorMode, setCalculatorMode] = useState(null); // 'religious' | 'commercial'
   const [shopSize, setShopSize] = useState(120);
 
+  // Reset calculator mode when a different parcel is selected (e.g. clicking another map point)
+  useEffect(() => {
+    setCalculatorMode(null);
+  }, [selectedParcel?.PARCEL_ID]);
+
   const drawerTitle = useMemo(() => {
     if (calculatorMode === 'religious') return 'Religious Facility Capacity Calculator';
     if (calculatorMode === 'commercial') return 'Commercial Plot Capacity';
@@ -44,7 +56,7 @@ export default function ParcelDetailDrawer({
 
   const handleCalculateClick = (parcel) => {
     onParcelSelect(parcel);
-    if (parcel.LANDUSE_CATEGORY === 'Religious') {
+    if (isMosque(parcel)) {
       setCalculatorMode('religious');
     } else if (parcel.LANDUSE_CATEGORY === 'Commercial') {
       setCalculatorMode('commercial');
@@ -108,7 +120,7 @@ export default function ParcelDetailDrawer({
           <ParcelDetail 
             parcel={selectedParcel}
             onCalculate={() => {
-              if (selectedParcel.LANDUSE_CATEGORY === 'Religious') {
+              if (isMosque(selectedParcel)) {
                 setCalculatorMode('religious');
               } else if (selectedParcel.LANDUSE_CATEGORY === 'Commercial') {
                 setCalculatorMode('commercial');
@@ -135,7 +147,7 @@ function QueryResultsList({ parcels, category, onParcelClick, onCalculateClick, 
       <div style={styles.parcelList}>
         {parcels.map((parcel) => {
           const isVacant = (parcel.PARCEL_STATUS_LABEL || parcel.PARCEL_STATUS_LABEL_EN || '').toLowerCase().includes('vacant');
-          const canCalculate = parcel.LANDUSE_CATEGORY === 'Religious' || parcel.LANDUSE_CATEGORY === 'Commercial';
+          const canCalculate = isMosque(parcel) || parcel.LANDUSE_CATEGORY === 'Commercial';
 
           return (
             <div
@@ -202,7 +214,7 @@ function QueryResultsList({ parcels, category, onParcelClick, onCalculateClick, 
 // Parcel Detail Component
 function ParcelDetail({ parcel, onCalculate }) {
   const categoryColor = CATEGORY_COLORS[parcel.LANDUSE_CATEGORY] || CATEGORY_COLORS.Unknown;
-  const canCalculate = parcel.LANDUSE_CATEGORY === 'Religious' || parcel.LANDUSE_CATEGORY === 'Commercial';
+  const canCalculate = isMosque(parcel) || parcel.LANDUSE_CATEGORY === 'Commercial';
   const isVacant = (parcel.PARCEL_STATUS_LABEL || parcel.PARCEL_STATUS_LABEL_EN || '').toLowerCase().includes('vacant');
 
   const fields = [
@@ -255,10 +267,7 @@ function ParcelDetail({ parcel, onCalculate }) {
 // Religious Facility Calculator Component
 function MosqueCalculator({ parcel }) {
   const area = Number(parcel.AREA_M2) || 0;
-  // Use pre-calculated estimate from ETL if available, else derive from area
-  const capacity = Number(parcel.CAPACITY_ESTIMATED) > 0
-    ? Number(parcel.CAPACITY_ESTIMATED)
-    : Math.floor(area / 8);
+  const capacity = Math.floor(area / 1.2);
   const isVacant = (parcel.PARCEL_STATUS_LABEL || parcel.PARCEL_STATUS_LABEL_EN || '').toLowerCase().includes('vacant');
 
   return (
@@ -276,7 +285,7 @@ function MosqueCalculator({ parcel }) {
         <div style={styles.formula}>
           <span>{area.toLocaleString()} m²</span>
           <span style={styles.formulaOperator}>÷</span>
-          <span>8 m²/worshipper</span>
+          <span>1.2 m²/worshipper</span>
           <span style={styles.formulaOperator}>=</span>
           <span style={styles.formulaResult}>{capacity.toLocaleString()}</span>
         </div>
@@ -288,7 +297,7 @@ function MosqueCalculator({ parcel }) {
       </div>
 
       <div style={styles.calcNote}>
-        Based on mosque prayer density of 8 m² per worshipper
+        Based on mosque prayer density of 1.2 m² per worshipper
       </div>
 
       <div style={styles.statusNote}>

@@ -177,7 +177,7 @@ LAND USE BREAKDOWN BY CATEGORY (SUBTYPE-based classification):
 {category_breakdown_text}
 
 CAPACITY ESTIMATES:
-  - Total Religious Facility Capacity: {religious_capacity:,} worshippers (at 1 m²/person)
+  - Total Religious Facility Capacity: {religious_capacity:,} worshippers (at 1.2 m²/person)
   - Total Commercial Shops: {shops_estimated:,} units (at 120 m²/shop estimate)
 
 DEVELOPMENT STATUS:
@@ -393,7 +393,7 @@ Tier 1: MAINLANDUSE Breakdown
 
 Tier 2: DETAILSLANDUSE Breakdown
 {detail_breakdown or 'None available'}
-Total Mosque Capacity (1 m2/person): {stats.get('total_religious_capacity', 0)}
+Total Mosque Capacity (1.2 m2/person): {stats.get('total_religious_capacity', 0)}
 Total Shops ({shop_size_m2} m2/shop): {stats.get('total_shops', 0)}
 
 Tier 3: SUBTYPE Summary
