@@ -272,9 +272,12 @@ def query_parcels_in_selection(
             "CAPACITY_ESTIMATED": p.get("CAPACITY_ESTIMATED"),
             "SHOPS_ESTIMATED": p.get("SHOPS_ESTIMATED"),
             "SUBTYPE_LABEL_EN": p.get("SUBTYPE_LABEL_EN"),
+            "DETAIL_LABEL_EN": p.get("DETAIL_LABEL_EN"),
+            "LANDUSE_CATEGORY": p.get("LANDUSE_CATEGORY"),
             "PARCEL_STATUS_LABEL": p.get("PARCEL_STATUS_LABEL"),
             "BLOCK_ID": p.get("BLOCK_ID"),
             "IS_COMMERCIAL": p.get("IS_COMMERCIAL"),
+            "NOOFFLOORS": p.get("NOOFFLOORS"),
         })
     
     return result

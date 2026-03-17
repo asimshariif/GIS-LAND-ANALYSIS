@@ -60,7 +60,7 @@ class BBoxSelectRequest(BaseModel):
 class CategoryQueryRequest(BaseModel):
     """Request to query parcels by category within a selection."""
     category: str = Field(..., description="LANDUSE_CATEGORY to filter by")
-    selected_objectids: List[int] = Field(
+    selected_objectids: List[str] = Field(
         ...,
         description="List of PARCEL_IDs from current selection"
     )
@@ -89,12 +89,12 @@ class NLQueryRequest(BaseModel):
 
 class MosqueCapacityRequest(BaseModel):
     """Request to calculate mosque capacity for a parcel."""
-    object_id: int = Field(..., description="PARCEL_ID/OBJECTID of the mosque parcel")
+    object_id: str = Field(..., description="PARCEL_ID of the parcel")
 
 
 class CommercialCapacityRequest(BaseModel):
     """Request to calculate commercial capacity for a parcel."""
-    object_id: int = Field(..., description="PARCEL_ID/OBJECTID of the commercial parcel")
+    object_id: str = Field(..., description="PARCEL_ID of the parcel")
     shop_size_m2: float = Field(
         default=120.0,
         gt=0,
@@ -109,7 +109,7 @@ class CommercialCapacityRequest(BaseModel):
 
 class ReportRequest(BaseModel):
     """Request to generate an LLM or PDF report for a selection."""
-    selected_objectids: Optional[List[int]] = Field(
+    selected_objectids: Optional[List[str]] = Field(
         default=None,
         description="List of PARCEL_IDs in the selection (optional)"
     )
@@ -125,7 +125,7 @@ class ReportRequest(BaseModel):
 
 class ShapefileExportRequest(BaseModel):
     """Request to export selected parcels as shapefile."""
-    selected_objectids: List[int] = Field(
+    selected_objectids: List[str] = Field(
         ...,
         min_length=1,
         description="List of PARCEL_IDs to export"
@@ -198,5 +198,5 @@ class ReportResponse(BaseModel):
 
 class TextReportRequest(BaseModel):
     """Legacy text report request."""
-    object_id: int
+    object_id: str
     context_mode: str

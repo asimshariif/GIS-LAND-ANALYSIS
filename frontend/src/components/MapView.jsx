@@ -1,5 +1,5 @@
-import React, { useRef, useEffect, useState, useCallback } from 'react';
-import { MapContainer, TileLayer, FeatureGroup, CircleMarker, Polygon, Tooltip, useMap } from 'react-leaflet';
+import React, { useRef, useEffect, useMemo, useState, useCallback } from 'react';
+import { MapContainer, TileLayer, FeatureGroup, Polygon, useMap } from 'react-leaflet';
 import { EditControl } from 'react-leaflet-draw';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
@@ -125,73 +125,119 @@ function DrawControlWrapper({ drawMode, onDrawComplete, clearTrigger }) {
   );
 }
 
-// Markers layer component
+// Markers layer — uses imperative Leaflet API for reliable style updates
 function MarkersLayer({ parcels, highlightedObjectIds, selectedObjectIds, onParcelClick }) {
-  const hasHighlight = highlightedObjectIds && highlightedObjectIds.length > 0;
-  const highlightSet = new Set(highlightedObjectIds || []);
-  const selectedSet = new Set(selectedObjectIds || []);
+  const map = useMap();
+  const layerGroupRef = useRef(null);
+  const markerMapRef = useRef({}); // PARCEL_ID → L.circleMarker
+  const categoryMapRef = useRef({}); // PARCEL_ID → category string
+  const onParcelClickRef = useRef(onParcelClick);
+  onParcelClickRef.current = onParcelClick;
 
-  return (
-    <>
-      {parcels.map((parcel) => {
-        if (!parcel.REPR_LAT || !parcel.REPR_LON) return null;
+  // Create markers once when parcels load
+  useEffect(() => {
+    if (!map || !parcels.length) return;
 
-        const objectId = parcel.OBJECTID;
-        const category = parcel.LANDUSE_CATEGORY || 'Unknown';
-        const color = CATEGORY_COLORS[category] || CATEGORY_COLORS.Unknown;
-        const isReligious = category === 'Religious';
-        const isHighlighted = highlightSet.has(objectId);
-        const isSelected = selectedSet.has(objectId);
+    // Clean up previous layer group
+    if (layerGroupRef.current) {
+      map.removeLayer(layerGroupRef.current);
+      layerGroupRef.current = null;
+    }
 
-        // Determine radius and opacity based on state
-        let radius = isReligious ? 8 : 5;
-        let fillOpacity = 0.85;
+    const group = L.layerGroup();
+    const markers = {};
+    const categories = {};
 
-        if (hasHighlight) {
-          if (isHighlighted) {
-            radius = 10;
-            fillOpacity = 1;
-          } else {
-            fillOpacity = 0.15;
-          }
+    for (const parcel of parcels) {
+      if (!parcel.REPR_LAT || !parcel.REPR_LON) continue;
+
+      const id = parcel.PARCEL_ID;
+      if (!id) continue; // skip null IDs
+
+      const category = parcel.LANDUSE_CATEGORY || 'Unknown';
+      const color = CATEGORY_COLORS[category] || CATEGORY_COLORS.Unknown;
+      const isReligious = category === 'Religious';
+
+      const marker = L.circleMarker([parcel.REPR_LAT, parcel.REPR_LON], {
+        radius: isReligious ? 8 : 5,
+        fillColor: color,
+        fillOpacity: 0.85,
+        color: 'white',
+        weight: 1,
+        opacity: 0.8,
+      });
+
+      marker.bindTooltip(
+        `<div style="min-width:120px">
+          <div style="font-weight:600;margin-bottom:4px">${parcel.SUBTYPE_LABEL_EN || category}</div>
+          <div style="font-size:0.85em;color:#94a3b8">${Number(parcel.AREA_M2 || 0).toLocaleString()} m²</div>
+        </div>`,
+        { direction: 'top', offset: [0, -10], opacity: 1 }
+      );
+
+      // Use ref for callback so effect doesn't re-fire on callback changes
+      marker.on('click', () => onParcelClickRef.current(id));
+      group.addLayer(marker);
+      markers[id] = marker;
+      categories[id] = category;
+    }
+
+    group.addTo(map);
+    layerGroupRef.current = group;
+    markerMapRef.current = markers;
+    categoryMapRef.current = categories;
+
+    return () => {
+      if (layerGroupRef.current) {
+        map.removeLayer(layerGroupRef.current);
+        layerGroupRef.current = null;
+      }
+    };
+  }, [map, parcels]); // stable deps only — callback is via ref
+
+  // Update styles when highlights change
+  useEffect(() => {
+    const markers = markerMapRef.current;
+    const categories = categoryMapRef.current;
+    const markerCount = Object.keys(markers).length;
+    if (!markerCount) return;
+
+    const hasHighlight = highlightedObjectIds && highlightedObjectIds.length > 0;
+    const highlightSet = new Set((highlightedObjectIds || []).map(String));
+
+    console.log('[Highlight] hasHighlight:', hasHighlight,
+      'highlightedCount:', highlightSet.size,
+      'totalMarkers:', markerCount);
+
+    let matched = 0;
+    for (const [id, marker] of Object.entries(markers)) {
+      const cat = categories[id] || 'Unknown';
+      const isReligious = cat === 'Religious';
+      const isHighlighted = highlightSet.has(id);
+      if (isHighlighted) matched++;
+
+      let radius = isReligious ? 8 : 5;
+      let fillOpacity = 0.85;
+      let opacity = 0.8;
+
+      if (hasHighlight) {
+        if (isHighlighted) {
+          radius = 12;
+          fillOpacity = 1;
+          opacity = 1;
+        } else {
+          fillOpacity = 0.25;
+          opacity = 0.25;
         }
+      }
 
-        return (
-          <CircleMarker
-            key={objectId}
-            center={[parcel.REPR_LAT, parcel.REPR_LON]}
-            radius={radius}
-            pathOptions={{
-              fillColor: color,
-              fillOpacity,
-              color: 'white',
-              weight: 1,
-              opacity: hasHighlight ? (isHighlighted ? 1 : 0.15) : 0.8,
-            }}
-            className={isHighlighted ? 'marker-pulse' : ''}
-            eventHandlers={{
-              click: () => onParcelClick(objectId),
-            }}
-          >
-            <Tooltip
-              direction="top"
-              offset={[0, -10]}
-              opacity={1}
-            >
-              <div style={{ minWidth: 120 }}>
-                <div style={{ fontWeight: 600, marginBottom: 4 }}>
-                  {parcel.SUBTYPE_LABEL_EN || category}
-                </div>
-                <div style={{ fontSize: '0.85em', color: '#94a3b8' }}>
-                  {Number(parcel.AREA_M2 || 0).toLocaleString()} m²
-                </div>
-              </div>
-            </Tooltip>
-          </CircleMarker>
-        );
-      })}
-    </>
-  );
+      marker.setRadius(radius);
+      marker.setStyle({ fillOpacity, opacity });
+    }
+    console.log('[Highlight] matched markers:', matched, '/', markerCount);
+  }, [highlightedObjectIds]);
+
+  return null; // rendering handled imperatively
 }
 
 export default function MapView({

@@ -28,8 +28,6 @@ export default function ParcelDetailDrawer({
   const [calculatorMode, setCalculatorMode] = useState(null); // 'religious' | 'commercial'
   const [shopSize, setShopSize] = useState(120);
 
-  if (!isOpen) return null;
-
   const drawerTitle = useMemo(() => {
     if (calculatorMode === 'religious') return 'Religious Facility Capacity Calculator';
     if (calculatorMode === 'commercial') return 'Commercial Plot Capacity';
@@ -38,8 +36,10 @@ export default function ParcelDetailDrawer({
     return 'Parcel Details';
   }, [mode, activeCategory, queriedParcels.length, calculatorMode]);
 
+  if (!isOpen) return null;
+
   const handleParcelClick = (parcel) => {
-    onHighlightParcel(parcel.OBJECTID);
+    onHighlightParcel(parcel.PARCEL_ID);
   };
 
   const handleCalculateClick = (parcel) => {
@@ -139,7 +139,7 @@ function QueryResultsList({ parcels, category, onParcelClick, onCalculateClick, 
 
           return (
             <div
-              key={parcel.OBJECTID}
+              key={parcel.PARCEL_ID}
               style={styles.parcelCard}
               onClick={() => onParcelClick(parcel)}
             >
@@ -206,7 +206,7 @@ function ParcelDetail({ parcel, onCalculate }) {
   const isVacant = (parcel.PARCEL_STATUS_LABEL || parcel.PARCEL_STATUS_LABEL_EN || '').toLowerCase().includes('vacant');
 
   const fields = [
-    { label: 'Object ID', value: parcel.OBJECTID },
+    { label: 'Parcel ID', value: parcel.PARCEL_ID },
     { label: 'Subtype (EN)', value: parcel.SUBTYPE_LABEL_EN },
     { label: 'Subtype (AR)', value: parcel.SUBTYPE_LABEL_AR },
     { label: 'Category', value: parcel.LANDUSE_CATEGORY, color: categoryColor },

@@ -69,6 +69,7 @@ export default function App() {
 
   // Handle category query from QueryBar or BottomPanel
   const handleCategorySelect = useCallback(async (category) => {
+    console.log('[CategorySelect] clicked:', category, 'active:', activeCategory);
     if (activeCategory === category) {
       // Deselect if same category clicked
       setActiveCategory(null);
@@ -79,8 +80,10 @@ export default function App() {
     }
 
     try {
+      console.log('[CategorySelect] querying with', selectedObjectIds.length, 'IDs');
       const result = await queryCategory(category, selectedObjectIds);
-      const objectIds = result.parcels.map(p => p.OBJECTID);
+      const objectIds = result.parcels.map(p => p.PARCEL_ID);
+      console.log('[CategorySelect] got', objectIds.length, 'results, sample:', objectIds.slice(0, 3));
       
       setActiveCategory(category);
       setHighlightedObjectIds(objectIds);
@@ -88,7 +91,7 @@ export default function App() {
       setDrawerMode('query');
       setIsDrawerOpen(true);
     } catch (e) {
-      console.error('Failed to query category:', e);
+      console.error('[CategorySelect] FAILED:', e);
     }
   }, [activeCategory, selectedObjectIds]);
 
@@ -101,7 +104,7 @@ export default function App() {
       setIsDrawerOpen(false);
       return;
     }
-    const objectIds = filteredParcels.map(p => p.OBJECTID || p.PARCEL_ID);
+    const objectIds = filteredParcels.map(p => p.PARCEL_ID);
     setHighlightedObjectIds(objectIds);
     setQueriedParcels(filteredParcels);
     setDrawerMode('query');
