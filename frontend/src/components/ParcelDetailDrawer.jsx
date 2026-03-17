@@ -5,11 +5,22 @@ import {
 } from 'lucide-react';
 import { calculateMosqueCapacity, calculateCommercialCapacity } from '../api/client';
 
-// Only actual mosques should get the worshipper capacity calculator,
-// not imam/muezzin residences which are also under Religious category.
+// Only actual mosque parcels should get the worshipper capacity calculator.
+// Parcels whose SUBTYPE_LABEL_EN indicates non-mosque uses (Municipal Services,
+// utilities, residential staff quarters, etc.) are explicitly excluded even when
+// they sit under the 'Religious' land-use category.
+const NON_MOSQUE_SUBTYPES = [
+  'municipal', 'utilities', 'infrastructure', 'residential', 'commercial',
+  'office', 'admin', 'management', 'staff', 'parking',
+];
 const isMosque = (parcel) => {
+  if (parcel.LANDUSE_CATEGORY !== 'Religious') return false;
+  const subtype = (parcel.SUBTYPE_LABEL_EN || '').toLowerCase();
+  // Reject known non-mosque subtypes explicitly
+  if (NON_MOSQUE_SUBTYPES.some(kw => subtype.includes(kw))) return false;
+  // Accept if subtype or detail label contains 'mosque' or 'religious'
   const detail = (parcel.DETAIL_LABEL_EN || '').toLowerCase();
-  return parcel.LANDUSE_CATEGORY === 'Religious' && detail.includes('mosque');
+  return subtype.includes('mosque') || subtype.includes('religious') || detail.includes('mosque');
 };
 
 const CATEGORY_COLORS = {

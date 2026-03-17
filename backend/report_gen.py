@@ -276,7 +276,21 @@ def generate_pdf_report(
         story.append(HRFlowable(width="100%", thickness=0.5, color=colors.HexColor("#cbd5e0")))
         story.append(Spacer(1, 6))
 
-        mosque_calcs = [c for c in capacity_calculations if c.get("type") == "mosque"]
+        # Only include entries whose subtype is an actual mosque/religious facility.
+        # Entries where the subtype indicates a non-mosque use (e.g. "Municipal Services")
+        # must never appear in the Religious Facility Capacity table.
+        _NON_MOSQUE_KEYWORDS = (
+            'municipal', 'utilities', 'infrastructure', 'residential',
+            'commercial', 'office', 'admin', 'parking', 'staff',
+        )
+        mosque_calcs = [
+            c for c in capacity_calculations
+            if c.get("type") == "mosque"
+            and not any(
+                kw in (c.get("subtype") or "").lower()
+                for kw in _NON_MOSQUE_KEYWORDS
+            )
+        ]
         commercial_calcs = [c for c in capacity_calculations if c.get("type") == "commercial"]
 
         if mosque_calcs:
