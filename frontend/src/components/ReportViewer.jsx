@@ -306,7 +306,7 @@ export default function ReportViewer({
                             <div style={{ ...styles.calcResult, color: '#2563eb' }}>
                               {(c.capacity_worshippers || 0).toLocaleString()} worshippers
                               <span style={styles.calcFormula}>
-                                @ {c.rate_m2_per_worshipper || 8} m²/person
+                                @ {c.rate_m2_per_worshipper || 1.2} m²/person
                               </span>
                             </div>
                           ) : (

@@ -302,7 +302,7 @@ function MosqueCalculator({ parcel, onCalculated }) {
               subtype: parcel.SUBTYPE_LABEL_EN || 'Religious Facility',
               area_m2: area,
               capacity_worshippers: result.capacity_worshippers ?? 0,
-              rate_m2_per_worshipper: result.rate_m2_per_worshipper ?? 8.0,
+              rate_m2_per_worshipper: result.rate_m2_per_worshipper ?? 1.2,
               floors_estimated: result.floors_estimated ?? 1,
             });
           }
@@ -318,7 +318,7 @@ function MosqueCalculator({ parcel, onCalculated }) {
   }, [parcel.PARCEL_ID]);
 
   const capacity = calcResult?.capacity_worshippers ?? 0;
-  const rate = calcResult?.rate_m2_per_worshipper ?? 8.0;
+  const rate = calcResult?.rate_m2_per_worshipper ?? 1.2;
 
   return (
     <div style={styles.calculator}>

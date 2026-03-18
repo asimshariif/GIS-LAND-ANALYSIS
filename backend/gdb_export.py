@@ -314,7 +314,7 @@ def _build_capacity_layer(
             
             if calc_type == "mosque":
                 area = calc.get("area_m2", 0)
-                rate = calc.get("rate_m2_per_worshipper", 8.0)
+                rate = calc.get("rate_m2_per_worshipper", 1.2)
                 capacity = calc.get("capacity_worshippers", 0)
                 calc_gdf.loc[mask, "CALC_TYPE"] = "Mosque Capacity"
                 calc_gdf.loc[mask, "CALC_INPUT"] = f"{rate} m²/worshipper"

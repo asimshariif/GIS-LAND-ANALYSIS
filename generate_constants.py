@@ -15,7 +15,7 @@ def generate_details(code):
     elif code_str.startswith('101'):
         return {"label_en": "Residential Villa" if code == 101011 else f"Residential {code}", "label_ar": "فيلا سكنية", "category": "Residential", "capacity_rate": 10, "unit": "m2/unit"}
     elif code_str.startswith('301'):
-        return {"label_en": f"Mosque {code}", "label_ar": f"مسجد {code}", "category": "Mosque", "capacity_rate": 8, "unit": "m2/worshipper"}
+        return {"label_en": f"Mosque {code}", "label_ar": f"مسجد {code}", "category": "Mosque", "capacity_rate": 1.2, "unit": "m2/worshipper"}
     elif code_str.startswith('303') or code_str.startswith('304'):
         return {"label_en": f"Educational {code}", "label_ar": f"تعليمي {code}", "category": "Educational", "capacity_rate": 6, "unit": "m2/student"}
     elif code_str.startswith('306'):

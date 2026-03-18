@@ -376,7 +376,7 @@ Blocks in Filtered Set: {", ".join(str(b) for b in f_blocks[:8])} ({len(f_blocks
             area_m2 = calc.get("area_m2", 0)
             if ctype == "mosque":
                 cap_val = calc.get("capacity_worshippers", 0)
-                rate = calc.get("rate_m2_per_worshipper", 8.0)
+                rate = calc.get("rate_m2_per_worshipper", 1.2)
                 floors = calc.get("floors_estimated", 1)
                 prompt += (
                     f"  - Mosque: {subtype} (ID: {pid}) | "

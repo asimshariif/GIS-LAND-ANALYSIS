@@ -294,7 +294,7 @@ def calculate_mosque_capacity(
 ) -> dict:
     """Calculate mosque capacity for a specific parcel.
     
-    Computes capacity at 8 m²/worshipper rate.
+    Computes capacity at 1.2 m²/worshipper rate.
     
     Args:
         objectid: PARCEL_ID/OBJECTID of the mosque parcel
@@ -316,7 +316,7 @@ def calculate_mosque_capacity(
     
     parcel = parcels[0]
     area_m2 = float(parcel.get("AREA_M2") or 0)
-    rate = 8.0  # m² per worshipper
+    rate = 1.2  # m² per worshipper
     
     capacity = int(area_m2 / rate) if rate > 0 else 0
     
@@ -324,7 +324,7 @@ def calculate_mosque_capacity(
     area_formatted = f"{area_m2:,.0f}"
     capacity_formatted = f"{capacity:,}"
     
-    formula = f"Area: {area_formatted} m² ÷ {rate:.0f} m² per worshipper = {capacity_formatted} worshippers"
+    formula = f"Area: {area_formatted} m² ÷ {rate} m² per worshipper = {capacity_formatted} worshippers"
     
     # Determine development status
     status = parcel.get("PARCEL_STATUS_LABEL") or parcel.get("PARCEL_STATUS_LABEL_EN") or "Unknown"
