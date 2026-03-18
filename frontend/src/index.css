@@ -1,111 +1,326 @@
+/* GIS Land Analysis Platform - Premium Light Glass Theme */
+
 :root {
-  --text: #6b6375;
-  --text-h: #08060d;
-  --bg: #fff;
-  --border: #e5e4e7;
-  --code-bg: #f4f3ec;
-  --accent: #aa3bff;
-  --accent-bg: rgba(170, 59, 255, 0.1);
-  --accent-border: rgba(170, 59, 255, 0.5);
-  --social-bg: rgba(244, 243, 236, 0.5);
-  --shadow:
-    rgba(0, 0, 0, 0.1) 0 10px 15px -3px, rgba(0, 0, 0, 0.05) 0 4px 6px -2px;
+  /* Glass / Frosted surfaces */
+  --glass-bg: rgba(255, 255, 255, 0.82);
+  --glass-bg-dense: rgba(255, 255, 255, 0.95);
+  --glass-border: rgba(255, 255, 255, 0.65);
+  --glass-inset: inset 0 1px 0 rgba(255, 255, 255, 0.7);
 
-  --sans: system-ui, 'Segoe UI', Roboto, sans-serif;
-  --heading: system-ui, 'Segoe UI', Roboto, sans-serif;
-  --mono: ui-monospace, Consolas, monospace;
+  /* Panel surfaces */
+  --bg-deep-navy: #f8fafc;
+  --panel-surface: rgba(255, 255, 255, 0.93);
+  --panel-surface-alt: rgba(248, 250, 252, 0.97);
+  --panel-border: rgba(0, 0, 0, 0.07);
+  --panel-border-subtle: rgba(0, 0, 0, 0.04);
 
-  font: 18px/145% var(--sans);
-  letter-spacing: 0.18px;
-  color-scheme: light dark;
-  color: var(--text);
-  background: var(--bg);
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+  /* Text */
+  --text-primary: #0f172a;
+  --text-secondary: #475569;
+  --text-tertiary: #94a3b8;
 
-  @media (max-width: 1024px) {
-    font-size: 16px;
-  }
+  /* Accent colors */
+  --accent-blue: #3b82f6;
+  --accent-blue-hover: #2563eb;
+  --accent-blue-light: rgba(59, 130, 246, 0.10);
+  --accent-blue-ring: rgba(59, 130, 246, 0.25);
+  --success-emerald: #059669;
+  --success-light: rgba(5, 150, 105, 0.10);
+  --warning-amber: #d97706;
+  --warning-light: rgba(217, 119, 6, 0.10);
+  --danger-rose: #dc2626;
+  --danger-light: rgba(220, 38, 38, 0.10);
+
+  /* Map Marker Colors */
+  --marker-religious: #3b82f6;
+  --marker-commercial: #f59e0b;
+  --marker-residential: #10b981;
+  --marker-recreational: #22c55e;
+  --marker-educational: #8b5cf6;
+  --marker-municipal: #ef4444;
+  --marker-health: #ec4899;
+  --marker-utilities: #6366f1;
+  --marker-special: #a855f7;
+  --marker-unknown: #94a3b8;
+
+  /* Typography */
+  --font-sans: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, Consolas, monospace;
+
+  /* Layout */
+  --topbar-height: 80px;
+  --toolbar-width: 60px;
+  --drawer-width: 420px;
+  --bottom-panel-height: 460px;
+  --bottom-handle-height: 52px;
+
+  /* Transitions */
+  --transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-normal: 250ms cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-slow: 350ms cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* Shadows (light theme) */
+  --shadow-xs: 0 1px 3px rgba(0,0,0,0.05);
+  --shadow-sm: 0 2px 6px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
+  --shadow-md: 0 4px 16px rgba(0,0,0,0.08), 0 2px 6px rgba(0,0,0,0.04);
+  --shadow-lg: 0 8px 32px rgba(0,0,0,0.10), 0 4px 12px rgba(0,0,0,0.06);
+  --shadow-xl: 0 20px 60px rgba(0,0,0,0.12), 0 8px 24px rgba(0,0,0,0.08);
+  --shadow-glass: 0 8px 32px rgba(31,38,135,0.08), inset 0 1px 0 rgba(255,255,255,0.6);
+  --shadow-topbar: 0 4px 24px rgba(0,0,0,0.09), 0 1px 4px rgba(0,0,0,0.05), inset 0 1px 0 rgba(255,255,255,0.7);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --text: #9ca3af;
-    --text-h: #f3f4f6;
-    --bg: #16171d;
-    --border: #2e303a;
-    --code-bg: #1f2028;
-    --accent: #c084fc;
-    --accent-bg: rgba(192, 132, 252, 0.15);
-    --accent-border: rgba(192, 132, 252, 0.5);
-    --social-bg: rgba(47, 48, 58, 0.5);
-    --shadow:
-      rgba(0, 0, 0, 0.4) 0 10px 15px -3px, rgba(0, 0, 0, 0.25) 0 4px 6px -2px;
-  }
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
 
-  #social .button-icon {
-    filter: invert(1) brightness(2);
-  }
+html, body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
 }
 
 body {
-  margin: 0;
+  font-family: var(--font-sans);
+  background: #e8edf2;
+  color: var(--text-primary);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 #root {
-  width: 1126px;
-  max-width: 100%;
-  margin: 0 auto;
-  text-align: center;
-  border-inline: 1px solid var(--border);
-  min-height: 100svh;
-  display: flex;
-  flex-direction: column;
-  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
 }
 
-h1,
-h2 {
-  font-family: var(--heading);
-  font-weight: 500;
-  color: var(--text-h);
+/* Premium Scrollbar */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
 }
 
-h1 {
-  font-size: 56px;
-  letter-spacing: -1.68px;
-  margin: 32px 0;
-  @media (max-width: 1024px) {
-    font-size: 36px;
-    margin: 20px 0;
+::-webkit-scrollbar-track {
+  background: rgba(0,0,0,0.03);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(0,0,0,0.14);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(0,0,0,0.25);
+}
+
+/* Button Reset */
+button {
+  font-family: inherit;
+  cursor: pointer;
+  border: none;
+  background: none;
+  color: inherit;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+/* Input Reset */
+input, textarea {
+  font-family: inherit;
+  border: none;
+  background: none;
+  color: inherit;
+}
+
+input:focus, textarea:focus, button:focus {
+  outline: none;
+}
+
+/* Pulse Animation for Highlighted Markers */
+@keyframes pulse-ring {
+  0% {
+    transform: scale(1);
+    opacity: 0.8;
+  }
+  50% {
+    transform: scale(1.4);
+    opacity: 0.4;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 0.8;
   }
 }
-h2 {
-  font-size: 24px;
-  line-height: 118%;
-  letter-spacing: -0.24px;
-  margin: 0 0 8px;
-  @media (max-width: 1024px) {
-    font-size: 20px;
+
+.marker-pulse {
+  animation: pulse-ring 1.5s ease-in-out infinite;
+}
+
+/* Slide Animations */
+@keyframes slideInFromRight {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
   }
 }
-p {
-  margin: 0;
+
+@keyframes slideInFromBottom {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
 }
 
-code,
-.counter {
-  font-family: var(--mono);
-  display: inline-flex;
-  border-radius: 4px;
-  color: var(--text-h);
+@keyframes slideOutToRight {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(100%);
+  }
 }
 
-code {
-  font-size: 15px;
-  line-height: 135%;
-  padding: 4px 8px;
-  background: var(--code-bg);
+@keyframes slideOutToBottom {
+  from {
+    transform: translateY(0);
+  }
+  to {
+    transform: translateY(100%);
+  }
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Leaflet Overrides */
+.leaflet-container {
+  background: #f0f0f0 !important;
+  font-family: var(--font-sans) !important;
+}
+
+.leaflet-control-container .leaflet-top.leaflet-right {
+  top: calc(var(--topbar-height) + 80px);
+  right: 10px;
+}
+
+.leaflet-control-zoom {
+  border: 1px solid var(--panel-border) !important;
+  border-radius: 8px !important;
+  overflow: hidden;
+}
+
+.leaflet-control-zoom a {
+  background: var(--panel-surface) !important;
+  color: var(--text-primary) !important;
+  border-bottom: 1px solid var(--panel-border) !important;
+}
+
+.leaflet-control-zoom a:hover {
+  background: var(--panel-border) !important;
+}
+
+.leaflet-control-zoom a:last-child {
+  border-bottom: none !important;
+}
+
+.leaflet-control-attribution {
+  background: rgba(17, 24, 39, 0.8) !important;
+  color: var(--text-secondary) !important;
+  font-size: 10px !important;
+}
+
+.leaflet-control-attribution a {
+  color: var(--accent-blue) !important;
+}
+
+/* Leaflet Draw Overrides */
+.leaflet-draw-toolbar a {
+  background: var(--panel-surface) !important;
+  border: 1px solid var(--panel-border) !important;
+  color: var(--text-primary) !important;
+}
+
+.leaflet-draw-toolbar a:hover {
+  background: var(--panel-border) !important;
+}
+
+.leaflet-draw-actions {
+  background: var(--panel-surface) !important;
+  border: 1px solid var(--panel-border) !important;
+  border-radius: 4px !important;
+}
+
+.leaflet-draw-actions a {
+  background: var(--panel-surface) !important;
+  color: var(--text-primary) !important;
+  border: none !important;
+}
+
+.leaflet-draw-actions a:hover {
+  background: var(--accent-blue) !important;
+}
+
+/* Tooltip Override */
+.leaflet-tooltip {
+  background: var(--panel-surface) !important;
+  border: 1px solid var(--panel-border) !important;
+  color: var(--text-primary) !important;
+  border-radius: 6px !important;
+  padding: 8px 12px !important;
+  box-shadow: var(--shadow-lg) !important;
+}
+
+.leaflet-tooltip::before {
+  border-top-color: var(--panel-surface) !important;
+}
+
+/* Popup Override */
+.leaflet-popup-content-wrapper {
+  background: var(--panel-surface) !important;
+  color: var(--text-primary) !important;
+  border-radius: 8px !important;
+  box-shadow: var(--shadow-xl) !important;
+}
+
+.leaflet-popup-tip {
+  background: var(--panel-surface) !important;
+}
+
+.leaflet-popup-close-button {
+  color: var(--text-secondary) !important;
+}
+
+.leaflet-popup-close-button:hover {
+  color: var(--text-primary) !important;
 }

@@ -1,112 +1,591 @@
-import React, { useState, useEffect } from 'react';
-import { generateTextReport, generatePdfReport } from '../api/client';
+import React, { useState } from 'react';
+import {
+  X, Download, FileText, Loader, AlertCircle,
+  ChevronDown, ChevronUp, TrendingUp, MapPin,
+  BarChart2, Users, Filter, Calculator, Layers,
+} from 'lucide-react';
+import { generatePdfReport } from '../api/client';
 
-export default function ReportViewer({ blockId }) {
-  const [reportText, setReportText] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
+const CAT_COLORS = {
+  Residential: '#10b981', Commercial: '#f59e0b', Religious: '#3b82f6',
+  Educational: '#8b5cf6', Health: '#ec4899',     Municipal: '#ef4444',
+  Recreational: '#22c55e', Utilities: '#6366f1', Special: '#a855f7',
+  Unknown: '#94a3b8',
+};
 
-  useEffect(() => {
-    // Automatically pre-fill and maybe even trigger generate if we wanted, 
-    // but requirement says "Generate Report button calls /report/text"
-    if (blockId) {
-      setReportText('');
-      setError(null);
-    }
-  }, [blockId]);
+export default function ReportViewer({
+  isOpen,
+  onClose,
+  reportData,
+  selectionData,
+  selectionSummary,
+  filteredSummary,
+  appliedFilters,
+  capacityCalculations,
+  buildReportPayload,
+  isLoading,
+  error,
+}) {
+  const [expandedSections, setExpandedSections] = useState({
+    overview: true,
+    filters: true,
+    landUse: true,
+    filteredLandUse: true,
+    capacity: true,
+    calculations: true,
+    insights: true,
+  });
+  const [downloadingPdf, setDownloadingPdf] = useState(false);
 
-  const handleGenerateReport = async () => {
-    if (!blockId) return;
-    setLoading(true);
-    setError(null);
-    try {
-      const response = await generateTextReport(blockId);
-      // Handle various response struct shapes from different dynamic backends
-      const text = response.data.report || response.data.text || response.data;
-      setReportText(typeof text === 'object' ? JSON.stringify(text, null, 2) : text);
-    } catch (err) {
-      setError(err.response?.data?.error || err.message || 'Error generating report');
-    } finally {
-      setLoading(false);
-    }
-  };
+  if (!isOpen) return null;
+
+  const toggleSection = (section) =>
+    setExpandedSections(prev => ({ ...prev, [section]: !prev[section] }));
 
   const handleDownloadPdf = async () => {
-    if (!blockId) return;
+    if (!selectionSummary) return;
+    setDownloadingPdf(true);
     try {
-      const response = await generatePdfReport(blockId);
-      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const payload = buildReportPayload
+        ? buildReportPayload()
+        : { selection_summary: selectionSummary };
+      const blob = await generatePdfReport(payload);
+      const url = window.URL.createObjectURL(
+        blob instanceof Blob ? blob : new Blob([blob], { type: 'application/pdf' })
+      );
       const link = document.createElement('a');
       link.href = url;
-      link.setAttribute('download', `block_${blockId}_report.pdf`);
+      link.setAttribute('download', `land_analysis_report_${Date.now()}.pdf`);
       document.body.appendChild(link);
       link.click();
       link.remove();
+      window.URL.revokeObjectURL(url);
     } catch (err) {
       console.error('Failed to download PDF', err);
-      setError('Failed to download PDF');
+    } finally {
+      setDownloadingPdf(false);
     }
   };
 
-  return (
-    <div style={{ padding: '30px', maxWidth: '800px', margin: '0 auto', fontFamily: 'sans-serif' }}>
-      <h2 style={{ color: '#2c3e50', borderBottom: '2px solid #ecf0f1', paddingBottom: '10px' }}>
-        Block Report Generator
-      </h2>
-      
-      <div style={{ marginBottom: '20px', padding: '15px', background: '#f8f9fa', borderRadius: '6px' }}>
-        <label style={{ marginRight: '10px', fontWeight: 'bold' }}>Target Block ID:</label>
-        <input 
-          type="text" 
-          value={blockId || ''} 
-          readOnly 
-          placeholder="Select a block from the Analysis Panel" 
-          style={{ padding: '8px', width: '250px', border: '1px solid #bdc3c7', borderRadius: '4px' }}
-        />
-        <div style={{ marginTop: '15px', display: 'flex', gap: '10px' }}>
-          <button 
-            onClick={handleGenerateReport} 
-            disabled={!blockId || loading}
-            style={btnStyle(loading || !blockId ? '#95a5a6' : '#3498db')}
-          >
-            {loading ? 'Generating...' : 'Generate Text Report'}
-          </button>
-          <button 
-            onClick={handleDownloadPdf} 
-            disabled={!blockId}
-            style={btnStyle(!blockId ? '#95a5a6' : '#e74c3c')}
-          >
-            Download PDF Report
-          </button>
-        </div>
-        {error && <div style={{ color: '#c0392b', marginTop: '10px', fontWeight: 'bold' }}>{error}</div>}
-      </div>
+  // ---- Derive display statistics from the server-returned summary ----
+  // Use filtered summary when a filter is active, otherwise full selection summary.
+  const primarySummary = filteredSummary || selectionSummary;
+  const fullSummary = selectionSummary || {};
 
-      {reportText && (
-        <div style={{ 
-          border: '1px solid #bdc3c7', 
-          padding: '25px', 
-          backgroundColor: '#fff',
-          borderRadius: '8px',
-          boxShadow: '0 2px 10px rgba(0,0,0,0.05)',
-          whiteSpace: 'pre-wrap',
-          lineHeight: '1.6',
-          color: '#34495e'
-        }}>
-          {reportText}
+  const totalParcels = primarySummary?.total_parcels || 0;
+  const totalArea = primarySummary?.total_area_m2 || 0;
+  const vacantCount = primarySummary?.vacant_count || 0;
+  const developedCount = primarySummary?.developed_count || 0;
+  const blocksCount = (primarySummary?.block_ids_covered || []).length;
+  const religiousCapacity =
+    primarySummary?.total_religious_capacity || fullSummary?.total_religious_capacity || 0;
+  const shopsEstimated =
+    primarySummary?.total_shops_estimated || fullSummary?.total_shops_estimated || 0;
+
+  const breakdown = primarySummary?.breakdown || {};
+
+  const hasFilters = Array.isArray(appliedFilters) && appliedFilters.length > 0;
+  const hasCapacity = Array.isArray(capacityCalculations) && capacityCalculations.length > 0;
+  const hasFilteredSubset = !!filteredSummary;
+
+  return (
+    <div style={styles.overlay}>
+      <div style={styles.modal}>
+        {/* ---------------------------------------------------------------- */}
+        {/* Header                                                           */}
+        {/* ---------------------------------------------------------------- */}
+        <div style={styles.header}>
+          <div style={styles.headerLeft}>
+            <div style={styles.headerIcon}>
+              <FileText size={18} color="white" />
+            </div>
+            <div>
+              <h1 style={styles.title}>Land Analysis Report</h1>
+              <span style={styles.subtitle}>
+                {hasFilters ? 'Filtered selection · ' : ''}
+                {hasCapacity ? 'With capacity calculations · ' : ''}
+                AI-generated analysis
+              </span>
+            </div>
+          </div>
+          <div style={styles.headerActions}>
+            <button
+              style={{ ...styles.downloadBtn, ...(downloadingPdf || isLoading ? styles.btnDisabled : {}) }}
+              onClick={handleDownloadPdf}
+              disabled={downloadingPdf || isLoading}
+            >
+              {downloadingPdf
+                ? <Loader size={14} style={{ animation: 'spin 1s linear infinite' }} />
+                : <Download size={14} />}
+              <span>Download PDF</span>
+            </button>
+            <button style={styles.closeBtn} onClick={onClose}>
+              <X size={18} />
+            </button>
+          </div>
         </div>
-      )}
+
+        {/* ---------------------------------------------------------------- */}
+        {/* Body                                                             */}
+        {/* ---------------------------------------------------------------- */}
+        <div style={styles.body}>
+
+          {/* Loading */}
+          {isLoading && (
+            <div style={styles.centerState}>
+              <div style={styles.spinnerRing}>
+                <Loader size={32} style={{ animation: 'spin 1s linear infinite', color: '#3b82f6' }} />
+              </div>
+              <p style={styles.stateTitle}>Generating Report…</p>
+              <span style={styles.stateHint}>
+                Analysing {totalParcels.toLocaleString()} parcels — this may take 15–30 s
+              </span>
+            </div>
+          )}
+
+          {/* Error */}
+          {error && (
+            <div style={styles.centerState}>
+              <AlertCircle size={40} color="#dc2626" />
+              <p style={styles.stateTitle}>Failed to generate report</p>
+              <span style={{ ...styles.stateHint, color: '#dc2626' }}>{error}</span>
+            </div>
+          )}
+
+          {!isLoading && !error && (
+            <>
+              {/* ---- 1. Selection Overview ---- */}
+              <Section
+                title={hasFilteredSubset ? 'Filtered Selection Overview' : 'Selection Overview'}
+                icon={<BarChart2 size={16} color="#3b82f6" />}
+                expanded={expandedSections.overview}
+                onToggle={() => toggleSection('overview')}
+              >
+                <div style={styles.kpiGrid}>
+                  {[
+                    { v: totalParcels.toLocaleString(), l: 'Total Parcels', c: '#3b82f6' },
+                    { v: (totalArea / 10000).toFixed(2), l: 'Area (ha)', c: '#6366f1' },
+                    { v: vacantCount.toLocaleString(), l: 'Vacant', c: '#d97706' },
+                    { v: developedCount.toLocaleString(), l: 'Developed', c: '#059669' },
+                    { v: blocksCount.toLocaleString(), l: 'Blocks', c: '#8b5cf6' },
+                    {
+                      v: totalParcels > 0
+                        ? `${(vacantCount / totalParcels * 100).toFixed(1)}%`
+                        : 'N/A',
+                      l: 'Vacancy Rate', c: '#f59e0b',
+                    },
+                  ].map(({ v, l, c }) => (
+                    <div key={l} style={{ ...styles.kpiCard, background: `${c}0d` }}>
+                      <div style={{ ...styles.kpiVal, color: c }}>{v}</div>
+                      <div style={styles.kpiLbl}>{l}</div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Full selection comparison strip when filter is active */}
+                {hasFilteredSubset && fullSummary.total_parcels > 0 && (
+                  <div style={styles.comparisonStrip}>
+                    <Layers size={13} style={{ color: '#6366f1', flexShrink: 0 }} />
+                    <span style={styles.comparisonText}>
+                      Full selection: <strong>{fullSummary.total_parcels.toLocaleString()} parcels</strong>
+                      {' '}({(fullSummary.total_area_m2 / 10000).toFixed(2)} ha)
+                      &nbsp;·&nbsp; Filtered set is{' '}
+                      <strong>
+                        {(totalParcels / fullSummary.total_parcels * 100).toFixed(1)}%
+                      </strong>{' '}of total
+                    </span>
+                  </div>
+                )}
+              </Section>
+
+              {/* ---- 2. Applied Filters ---- */}
+              {hasFilters && (
+                <Section
+                  title="Applied Filters & Queries"
+                  icon={<Filter size={16} color="#d97706" />}
+                  expanded={expandedSections.filters}
+                  onToggle={() => toggleSection('filters')}
+                >
+                  <div style={styles.filterList}>
+                    {appliedFilters.map((f, i) => (
+                      <div key={i} style={styles.filterChip}>
+                        <Filter size={11} style={{ flexShrink: 0, color: '#d97706' }} />
+                        <span style={styles.filterText}>{f}</span>
+                      </div>
+                    ))}
+                  </div>
+                </Section>
+              )}
+
+              {/* ---- 3. Land Use Breakdown (primary / filtered) ---- */}
+              <Section
+                title={hasFilteredSubset ? 'Filtered Land Use Breakdown' : 'Land Use Breakdown'}
+                icon={<MapPin size={16} color="#10b981" />}
+                expanded={expandedSections.landUse}
+                onToggle={() => toggleSection('landUse')}
+              >
+                <LandUseTable breakdown={breakdown} totalParcels={totalParcels} />
+              </Section>
+
+              {/* ---- 4. Full Selection Land Use (when filter active) ---- */}
+              {hasFilteredSubset && (
+                <Section
+                  title="Full Selection Land Use"
+                  icon={<Layers size={16} color="#6366f1" />}
+                  expanded={expandedSections.filteredLandUse}
+                  onToggle={() => toggleSection('filteredLandUse')}
+                >
+                  <LandUseTable
+                    breakdown={fullSummary.breakdown || {}}
+                    totalParcels={fullSummary.total_parcels || 0}
+                  />
+                </Section>
+              )}
+
+              {/* ---- 5. Aggregate Capacity ---- */}
+              {(religiousCapacity > 0 || shopsEstimated > 0) && (
+                <Section
+                  title="Aggregate Capacity"
+                  icon={<Users size={16} color="#a855f7" />}
+                  expanded={expandedSections.capacity}
+                  onToggle={() => toggleSection('capacity')}
+                >
+                  <div style={styles.capGrid}>
+                    {religiousCapacity > 0 && (
+                      <div style={styles.capCard}>
+                        <div style={styles.capEmoji}>🕌</div>
+                        <div style={{ ...styles.capValue, color: '#3b82f6' }}>
+                          {religiousCapacity.toLocaleString()}
+                        </div>
+                        <div style={styles.capLabel}>Worshipper Capacity<br />(Religious parcels)</div>
+                      </div>
+                    )}
+                    {shopsEstimated > 0 && (
+                      <div style={styles.capCard}>
+                        <div style={styles.capEmoji}>🏪</div>
+                        <div style={{ ...styles.capValue, color: '#d97706' }}>
+                          {shopsEstimated.toLocaleString()}
+                        </div>
+                        <div style={styles.capLabel}>Estimated Shops<br />(Commercial parcels)</div>
+                      </div>
+                    )}
+                  </div>
+                </Section>
+              )}
+
+              {/* ---- 6. Individual Capacity Calculations ---- */}
+              {hasCapacity && (
+                <Section
+                  title={`Capacity Calculations (${capacityCalculations.length} parcel${capacityCalculations.length > 1 ? 's' : ''})`}
+                  icon={<Calculator size={16} color="#059669" />}
+                  expanded={expandedSections.calculations}
+                  onToggle={() => toggleSection('calculations')}
+                >
+                  <div style={styles.calcList}>
+                    {capacityCalculations.map((c, i) => (
+                      <div key={i} style={styles.calcCard}>
+                        <div style={styles.calcCardHeader}>
+                          <span style={{
+                            ...styles.calcTypeBadge,
+                            background: c.type === 'mosque'
+                              ? 'rgba(59,130,246,0.1)' : 'rgba(245,158,11,0.1)',
+                            color: c.type === 'mosque' ? '#2563eb' : '#b45309',
+                          }}>
+                            {c.type === 'mosque' ? '🕌 Religious' : '🏪 Commercial'}
+                          </span>
+                          <span style={styles.calcParcelId}>Parcel {c.parcel_id}</span>
+                        </div>
+                        <div style={styles.calcCardBody}>
+                          <div style={styles.calcDetail}>
+                            <span style={styles.calcLabel2}>{c.subtype || 'Unnamed'}</span>
+                            <span style={styles.calcArea2}>
+                              {Number(c.area_m2 || 0).toLocaleString()} m²
+                            </span>
+                          </div>
+                          {c.type === 'mosque' ? (
+                            <div style={{ ...styles.calcResult, color: '#2563eb' }}>
+                              {(c.capacity_worshippers || 0).toLocaleString()} worshippers
+                              <span style={styles.calcFormula}>
+                                @ {c.rate_m2_per_worshipper || 8} m²/person
+                              </span>
+                            </div>
+                          ) : (
+                            <div style={{ ...styles.calcResult, color: '#b45309' }}>
+                              {(c.shops_estimated || 0).toLocaleString()} shops
+                              <span style={styles.calcFormula}>
+                                @ {c.shop_size_m2 || 120} m²/shop
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </Section>
+              )}
+
+              {/* ---- 7. AI Narrative Analysis ---- */}
+              <Section
+                title="AI-Generated Analysis"
+                icon={<TrendingUp size={16} color="#059669" />}
+                expanded={expandedSections.insights}
+                onToggle={() => toggleSection('insights')}
+              >
+                {reportData?.report_text ? (
+                  <ReportText text={reportData.report_text} />
+                ) : (
+                  <div style={styles.noReport}>
+                    No AI analysis available. Return to the map, make a selection, and click Generate Report.
+                  </div>
+                )}
+              </Section>
+            </>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
 
-const btnStyle = (bg) => ({
-  backgroundColor: bg,
-  color: 'white',
-  padding: '10px 20px',
-  border: 'none',
-  borderRadius: '4px',
-  cursor: bg === '#95a5a6' ? 'not-allowed' : 'pointer',
-  fontWeight: 'bold',
-  transition: 'background 0.2s'
-});
+// ---------------------------------------------------------------------------
+// Land Use Table
+// ---------------------------------------------------------------------------
+function LandUseTable({ breakdown, totalParcels }) {
+  if (!breakdown || Object.keys(breakdown).length === 0) {
+    return <div style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>No data available.</div>;
+  }
+  const entries = Object.entries(breakdown)
+    .map(([cat, data]) => {
+      const count = typeof data === 'object' ? (data.count || 0) : Number(data);
+      const area = typeof data === 'object' ? (data.total_area_m2 || 0) : 0;
+      return { cat, count, area };
+    })
+    .sort((a, b) => b.count - a.count);
+
+  return (
+    <div style={styles.catTable}>
+      <div style={styles.catHeader}>
+        <span>Category</span>
+        <span>Count</span>
+        <span>Area (m²)</span>
+        <span>Share</span>
+        <span>Distribution</span>
+      </div>
+      {entries.map(({ cat, count, area }) => {
+        const pct = totalParcels > 0 ? (count / totalParcels * 100) : 0;
+        const color = CAT_COLORS[cat] || '#94a3b8';
+        return (
+          <div key={cat} style={styles.catRow}>
+            <div style={styles.catName}>
+              <span style={{ ...styles.catDot, background: color }} />
+              {cat}
+            </div>
+            <span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>{count.toLocaleString()}</span>
+            <span style={{ color: 'var(--text-secondary)', fontSize: '0.8rem' }}>
+              {area > 0 ? area.toLocaleString(undefined, { maximumFractionDigits: 0 }) : '—'}
+            </span>
+            <span style={{ color: 'var(--text-secondary)' }}>{pct.toFixed(1)}%</span>
+            <div style={styles.barTrack}>
+              <div style={{ ...styles.barFill, width: `${Math.min(pct, 100)}%`, background: color }} />
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Report text renderer — headings, bullets, paragraphs
+// ---------------------------------------------------------------------------
+function ReportText({ text }) {
+  return (
+    <div style={styles.reportText}>
+      {text.split('\n').map((line, i) => {
+        const trimmed = line.trim();
+        if (!trimmed) return <div key={i} style={{ height: 8 }} />;
+
+        const isHeading =
+          /^\d+\.\s+[A-Z]/.test(trimmed) ||
+          (trimmed === trimmed.toUpperCase() && trimmed.length > 3 && !trimmed.startsWith('-'));
+        if (isHeading) {
+          return (
+            <div key={i} style={styles.reportHeading}>
+              {trimmed.replace(/^#+\s*/, '')}
+            </div>
+          );
+        }
+        if (trimmed.startsWith('-') || trimmed.startsWith('•') || trimmed.startsWith('*')) {
+          return (
+            <div key={i} style={styles.reportBullet}>
+              <span style={styles.bulletDot}>•</span>
+              <span>{trimmed.replace(/^[-•*]\s*/, '')}</span>
+            </div>
+          );
+        }
+        return <p key={i} style={styles.reportPara}>{trimmed}</p>;
+      })}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Collapsible Section
+// ---------------------------------------------------------------------------
+function Section({ title, icon, expanded, onToggle, children }) {
+  return (
+    <div style={secStyles.wrap}>
+      <button style={secStyles.header} onClick={onToggle}>
+        <div style={secStyles.titleRow}>
+          {icon}
+          <span style={secStyles.title}>{title}</span>
+        </div>
+        {expanded
+          ? <ChevronUp size={16} style={{ color: 'var(--text-tertiary)' }} />
+          : <ChevronDown size={16} style={{ color: 'var(--text-tertiary)' }} />}
+      </button>
+      {expanded && <div style={secStyles.body}>{children}</div>}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Styles
+// ---------------------------------------------------------------------------
+const secStyles = {
+  wrap: {
+    borderRadius: 16, border: '1px solid rgba(0,0,0,0.07)',
+    overflow: 'hidden', background: '#ffffff',
+    boxShadow: '0 1px 4px rgba(0,0,0,0.04)',
+  },
+  header: {
+    width: '100%', display: 'flex', alignItems: 'center',
+    justifyContent: 'space-between', padding: '13px 18px',
+    background: 'rgba(248,250,252,0.9)', border: 'none',
+    cursor: 'pointer', borderBottom: '1px solid rgba(0,0,0,0.05)',
+  },
+  titleRow: { display: 'flex', alignItems: 'center', gap: 8 },
+  title: { fontSize: '0.88rem', fontWeight: 700, color: 'var(--text-primary)', letterSpacing: '-0.01em' },
+  body: { padding: '16px 18px' },
+};
+
+const styles = {
+  overlay: {
+    position: 'fixed', inset: 0,
+    background: 'rgba(15,23,42,0.50)',
+    backdropFilter: 'blur(4px)', WebkitBackdropFilter: 'blur(4px)',
+    zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center',
+    animation: 'fadeIn 0.2s ease',
+  },
+  modal: {
+    width: '92vw', maxWidth: 880, height: '92vh', maxHeight: 860,
+    background: '#f8fafc', borderRadius: 24, display: 'flex',
+    flexDirection: 'column', overflow: 'hidden',
+    boxShadow: '0 32px 80px rgba(0,0,0,0.18), 0 8px 24px rgba(0,0,0,0.10)',
+    animation: 'fadeInScale 0.25s ease', border: '1px solid rgba(255,255,255,0.8)',
+  },
+  header: {
+    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+    padding: '18px 24px', background: 'white',
+    borderBottom: '1px solid rgba(0,0,0,0.07)', flexShrink: 0,
+  },
+  headerLeft: { display: 'flex', alignItems: 'center', gap: 14 },
+  headerIcon: {
+    width: 40, height: 40, borderRadius: 12,
+    background: 'linear-gradient(135deg, #3b82f6, #1d4ed8)',
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    boxShadow: '0 4px 12px rgba(59,130,246,0.35)', flexShrink: 0,
+  },
+  title: { margin: 0, fontSize: '1.1rem', fontWeight: 800, color: 'var(--text-primary)', letterSpacing: '-0.025em' },
+  subtitle: { fontSize: '0.72rem', color: 'var(--text-tertiary)', fontWeight: 500 },
+  headerActions: { display: 'flex', alignItems: 'center', gap: 10 },
+  downloadBtn: {
+    display: 'flex', alignItems: 'center', gap: 7, padding: '9px 16px',
+    borderRadius: 999, background: 'linear-gradient(135deg, #3b82f6, #1d4ed8)',
+    color: 'white', fontWeight: 600, fontSize: '0.82rem',
+    cursor: 'pointer', border: 'none', boxShadow: '0 2px 8px rgba(59,130,246,0.40)',
+  },
+  btnDisabled: { background: 'rgba(0,0,0,0.08)', color: 'var(--text-tertiary)', boxShadow: 'none', cursor: 'not-allowed' },
+  closeBtn: {
+    width: 36, height: 36, borderRadius: 999, display: 'flex',
+    alignItems: 'center', justifyContent: 'center',
+    background: 'rgba(0,0,0,0.06)', color: 'var(--text-secondary)', cursor: 'pointer', border: 'none',
+  },
+  body: { flex: 1, overflowY: 'auto', padding: '18px', display: 'flex', flexDirection: 'column', gap: 12 },
+  centerState: { display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', flex: 1, gap: 14, padding: 40 },
+  spinnerRing: { width: 64, height: 64, borderRadius: '50%', background: 'rgba(59,130,246,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'center' },
+  stateTitle: { fontSize: '1rem', fontWeight: 600, color: 'var(--text-primary)', margin: 0 },
+  stateHint: { fontSize: '0.82rem', color: 'var(--text-tertiary)' },
+
+  kpiGrid: { display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 },
+  kpiCard: { borderRadius: 12, padding: '12px 14px', border: '1px solid rgba(0,0,0,0.05)' },
+  kpiVal: { fontSize: '1.45rem', fontWeight: 800, letterSpacing: '-0.03em', lineHeight: 1 },
+  kpiLbl: { fontSize: '0.67rem', color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.05em', marginTop: 4, fontWeight: 600 },
+
+  comparisonStrip: {
+    display: 'flex', alignItems: 'center', gap: 8, marginTop: 12,
+    padding: '8px 12px', background: 'rgba(99,102,241,0.07)',
+    borderRadius: 10, border: '1px solid rgba(99,102,241,0.15)',
+  },
+  comparisonText: { fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: 1.4 },
+
+  filterList: { display: 'flex', flexDirection: 'column', gap: 6 },
+  filterChip: {
+    display: 'flex', alignItems: 'flex-start', gap: 8, padding: '8px 12px',
+    background: 'rgba(217,119,6,0.07)', borderRadius: 10, border: '1px solid rgba(217,119,6,0.15)',
+  },
+  filterText: { fontSize: '0.82rem', color: 'var(--text-primary)', lineHeight: 1.4 },
+
+  catTable: { display: 'flex', flexDirection: 'column', gap: 4 },
+  catHeader: {
+    display: 'grid', gridTemplateColumns: '1.5fr 60px 90px 60px 100px',
+    padding: '6px 10px', fontSize: '0.67rem', fontWeight: 700,
+    color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.06em',
+  },
+  catRow: {
+    display: 'grid', gridTemplateColumns: '1.5fr 60px 90px 60px 100px',
+    padding: '9px 10px', background: 'rgba(248,250,252,0.8)',
+    borderRadius: 8, alignItems: 'center', border: '1px solid rgba(0,0,0,0.04)',
+  },
+  catName: { display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.84rem', fontWeight: 600, color: 'var(--text-primary)' },
+  catDot: { width: 10, height: 10, borderRadius: '50%', flexShrink: 0 },
+  barTrack: { height: 6, background: 'rgba(0,0,0,0.06)', borderRadius: 999, overflow: 'hidden' },
+  barFill: { height: '100%', borderRadius: 999 },
+
+  capGrid: { display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 14 },
+  capCard: {
+    padding: '18px', background: 'rgba(248,250,252,0.9)', borderRadius: 14,
+    border: '1px solid rgba(0,0,0,0.06)', display: 'flex', flexDirection: 'column',
+    gap: 6, alignItems: 'center', textAlign: 'center',
+  },
+  capEmoji: { fontSize: '2rem', lineHeight: 1 },
+  capValue: { fontSize: '1.8rem', fontWeight: 800, letterSpacing: '-0.03em', lineHeight: 1 },
+  capLabel: { fontSize: '0.72rem', color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.04em', fontWeight: 600 },
+
+  calcList: { display: 'flex', flexDirection: 'column', gap: 10 },
+  calcCard: { borderRadius: 12, border: '1px solid rgba(0,0,0,0.07)', overflow: 'hidden', background: 'white' },
+  calcCardHeader: {
+    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+    padding: '9px 14px', background: 'rgba(248,250,252,0.9)',
+    borderBottom: '1px solid rgba(0,0,0,0.05)',
+  },
+  calcTypeBadge: { fontSize: '0.75rem', fontWeight: 700, padding: '3px 10px', borderRadius: 999, letterSpacing: '0.01em' },
+  calcParcelId: { fontSize: '0.75rem', color: 'var(--text-tertiary)', fontWeight: 500 },
+  calcCardBody: { padding: '10px 14px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' },
+  calcDetail: { display: 'flex', flexDirection: 'column', gap: 2 },
+  calcLabel2: { fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-primary)' },
+  calcArea2: { fontSize: '0.75rem', color: 'var(--text-secondary)' },
+  calcResult: { fontSize: '1.15rem', fontWeight: 800, display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2 },
+  calcFormula: { fontSize: '0.72rem', color: 'var(--text-tertiary)', fontWeight: 500 },
+
+  reportText: { display: 'flex', flexDirection: 'column', gap: 4 },
+  reportHeading: {
+    fontSize: '0.92rem', fontWeight: 800, color: 'var(--text-primary)',
+    marginTop: 12, marginBottom: 4, letterSpacing: '-0.01em',
+    paddingBottom: 4, borderBottom: '1px solid rgba(0,0,0,0.07)',
+  },
+  reportPara: { fontSize: '0.875rem', color: 'var(--text-secondary)', lineHeight: 1.65, margin: 0 },
+  reportBullet: { display: 'flex', gap: 8, fontSize: '0.875rem', color: 'var(--text-secondary)', lineHeight: 1.55, paddingLeft: 4 },
+  bulletDot: { color: '#3b82f6', fontWeight: 800, marginTop: 1, flexShrink: 0 },
+  noReport: { fontSize: '0.85rem', color: 'var(--text-tertiary)', textAlign: 'center', padding: '20px 0' },
+};
