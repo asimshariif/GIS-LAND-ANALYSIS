@@ -5,6 +5,7 @@ import {
   Construction, CheckCircle, BarChart2, Maximize2, TrendingUp, Grid3X3
 } from 'lucide-react';
 import AnalysisPanel from './AnalysisPanel';
+import ParcelRowChart from './ParcelPieChart';
 
 // All 10 categories — always shown, 0 if missing
 const ALL_CATEGORIES = [
@@ -142,6 +143,16 @@ export default function BottomPanel({
                     </div>
                   </div>
                 ))}
+              </div>
+              {/* Parcel Ratio Chart */}
+              <div style={{ marginTop: 18 }}>
+                <div style={styles.sectionLabel}>Parcel Breakdown</div>
+                <ParcelRowChart
+                  data={ALL_CATEGORIES.map(({ name }, idx) => ({
+                    name,
+                    value: category_breakdown[name] || 0
+                  })).filter(d => d.value > 0)}
+                />
               </div>
             </>
           ) : (
