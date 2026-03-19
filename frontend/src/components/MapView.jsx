@@ -10,7 +10,9 @@ const RIYADH_CENTER = [24.7136, 46.6753];
 const DEFAULT_ZOOM = 12;
 
 // Google Maps tile layer
-const GOOGLE_MAPS = 'https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}';
+//const GOOGLE_MAPS = 'https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}';
+//esri
+const ESRI_MAP = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}';
 
 // Marker colors by category
 const CATEGORY_COLORS = {
@@ -331,13 +333,20 @@ export default function MapView({
         style={styles.map}
         zoomControl={true}
       >
-        {/* Google Maps Basemap */}
+        {/*  
+         Google Maps Basemap 
         <TileLayer
           url={GOOGLE_MAPS}
           attribution='&copy; <a href="https://www.google.com/maps">Google Maps</a>'
           maxZoom={20}
         />
-
+*/}
+        {/* ESRI Basemap */}
+        <TileLayer
+          url={ESRI_MAP}
+          attribution='&copy; <a href="https://www.esri.com">Esri</a>'
+          maxZoom={20}
+        />
         {/* Fly-to on zoomTarget change */}
         <FlyToHandler zoomTarget={zoomTarget} />
 
